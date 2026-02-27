@@ -34,4 +34,4 @@ datasets>=2.19.0      # HuggingFace datasets
 # Utils
 python-dotenv>=1.0.0
 tqdm>=4.66.0
-wandb>=0.17.0         # трекинг экспериментов
+wandb>=0.17.0         # experiment tracking

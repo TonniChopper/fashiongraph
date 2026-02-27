@@ -2,3 +2,11 @@ venv/
 data/raw/
 *.pt
 .env
+.DS_Store
+.idea/
+venv/
+data/raw/
+data/embeddings/
+*.pt
+__pycache__/
+.env

@@ -93,6 +93,8 @@ class FashionCLIPEncoder(nn.Module):
         Returns:
             Image embeddings of shape ``(B, embed_dim)``.
         """
+        device = next(self.parameters()).device
+        images = images.to(device)
         with torch.no_grad():
             features: torch.Tensor = self.model.encode_image(images)
         return self.fashion_head(features.float())
@@ -106,7 +108,8 @@ class FashionCLIPEncoder(nn.Module):
         Returns:
             Text embeddings of shape ``(B, embed_dim)``.
         """
-        tokens: torch.Tensor = self.tokenizer(texts)
+        device = next(self.parameters()).device
+        tokens: torch.Tensor = self.tokenizer(texts).to(device)
         with torch.no_grad():
             features: torch.Tensor = self.model.encode_text(tokens)
         return self.fashion_head(features.float())

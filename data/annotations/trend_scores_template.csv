@@ -1,0 +1,11 @@
+element,category,season,year,trend_score,context
+wide-leg jeans,bottoms,FW,2016,0.82,normcore revival
+wide-leg jeans,bottoms,SS,2020,0.44,pandemic comfort
+wide-leg jeans,bottoms,SS,2024,0.78,Y2K+sustainability
+chunky boots,footwear,FW,2018,0.91,ugly shoe trend peak
+chunky boots,footwear,SS,2023,0.55,quiet luxury shift
+choker,accessories,SS,2016,0.88,Y2K first wave
+choker,accessories,SS,2022,0.62,Y2K revival
+choker,accessories,SS,2025,0.28,post-Y2K fatigue
+oversized blazer,tops,FW,2020,0.85,WFH power dressing
+oversized blazer,tops,SS,2024,0.71,quiet luxury staple

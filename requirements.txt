@@ -1,0 +1,37 @@
+# Core ML
+torch>=2.2.0
+torchvision>=0.17.0
+transformers>=4.40.0
+open-clip-torch>=2.24.0
+torch-geometric>=2.5.0
+torch-geometric-temporal>=0.54.0
+
+# LLM / RAG
+langchain>=0.2.0
+langchain-community>=0.2.0
+chromadb>=0.5.0
+peft>=0.11.0          # LoRA fine-tuning
+bitsandbytes>=0.43.0  # QLoRA quantization
+
+# Diffusion
+diffusers>=0.28.0
+accelerate>=0.30.0
+controlnet-aux>=0.0.7
+
+# API
+fastapi>=0.111.0
+uvicorn>=0.29.0
+celery>=5.4.0
+redis>=5.0.0
+pydantic>=2.7.0
+
+# Data
+pandas>=2.2.0
+numpy>=1.26.0
+Pillow>=10.3.0
+datasets>=2.19.0      # HuggingFace datasets
+
+# Utils
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+wandb>=0.17.0         # трекинг экспериментов

@@ -107,9 +107,11 @@ class TemporalFashionGNN(nn.Module):
     next season.
 
     Attributes:
-        gcn_conv: Graph convolution layer.
-        interaction_learning: Short-range temporal GRU module.
-        global_time_attention: Long-range temporal attention module.
+        num_nodes: Number of fashion element nodes in the graph.
+        node_embed: Linear projection from scalar score to hidden_dim.
+        gcn: Graph convolution layer.
+        il: Short-range temporal GRU module (InteractionLearning).
+        gtam: Long-range temporal attention module (GlobalTimeAttention).
         predictor: MLP that produces per-node trend scores.
     """
 
@@ -137,20 +139,15 @@ class TemporalFashionGNN(nn.Module):
             raise ValueError(f"hidden_dim must be positive, got {hidden_dim}")
 
         self.num_nodes: int = num_nodes
-        self.hidden_dim: int = hidden_dim
-
-        self.gcn_conv: GCNConv = GCNConv(num_nodes, hidden_dim)
-        self.interaction_learning: InteractionLearning = InteractionLearning(
-            hidden_dim, hidden_dim
-        )
-        self.global_time_attention: GlobalTimeAttention = GlobalTimeAttention(
-            hidden_dim
-        )
+        self.node_embed: nn.Linear = nn.Linear(1, hidden_dim)
+        self.gcn: GCNConv = GCNConv(hidden_dim, hidden_dim)
+        self.il: InteractionLearning = InteractionLearning(hidden_dim, hidden_dim)
+        self.gtam: GlobalTimeAttention = GlobalTimeAttention(hidden_dim)
         self.predictor: nn.Sequential = nn.Sequential(
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
-            nn.Sigmoid(),  # trend_score in [0, 1]
+            nn.Sigmoid()
         )
 
         logger.info(
@@ -192,17 +189,12 @@ class TemporalFashionGNN(nn.Module):
 
         gcn_outputs: list[torch.Tensor] = []
         for snap in snapshots:
-            x: torch.Tensor = snap.unsqueeze(-1).expand(-1, snap.shape[0])
-            gcn_outputs.append(self.gcn_conv(x, edge_index))
+            x: torch.Tensor = self.node_embed(snap.unsqueeze(-1))
+            gcn_outputs.append(self.gcn(x, edge_index))
 
-        seq: torch.Tensor = torch.stack(gcn_outputs, dim=1)  # (nodes, time, hidden)
-
-        il_out: torch.Tensor = self.interaction_learning(seq)
-        gtam_out: torch.Tensor = self.global_time_attention(seq)
-
-        # Fusion: short-range (IL) + long-range (GTAM)
-        combined: torch.Tensor = torch.cat(
-            [il_out[:, -1], gtam_out[:, -1]], dim=-1
-        )
+        seq: torch.Tensor = torch.stack(gcn_outputs, dim=1)
+        il_out: torch.Tensor = self.il(seq)
+        gtam_out: torch.Tensor = self.gtam(seq)
+        combined: torch.Tensor = torch.cat([il_out[:, -1], gtam_out[:, -1]], dim=-1)
         return self.predictor(combined).squeeze(-1)
 

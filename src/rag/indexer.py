@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-import chromadb
+import chromadb, hashlib
 from chromadb.config import Settings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -44,8 +44,10 @@ class FashionKnowledgeIndexer:
             Number of chunks added.
         """
         chunks = self.splitter.split_text(text)
-        ids = [f"{metadata.get('source','doc')}_{i}" for i in range(len(chunks))]
-
+        ids = [
+            hashlib.md5(f"{metadata.get('source', 'doc')}_{chunk[:50]}".encode()).hexdigest()
+            for chunk in chunks
+        ]
         self.collection.add(
             documents=chunks,
             metadatas=[metadata] * len(chunks),

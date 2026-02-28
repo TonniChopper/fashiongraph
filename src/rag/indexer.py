@@ -5,7 +5,7 @@ from pathlib import Path
 
 import chromadb
 from chromadb.config import Settings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitter import RecursiveCharacterTextSplitter
 
 logger: logging.Logger = logging.getLogger(__name__)
 

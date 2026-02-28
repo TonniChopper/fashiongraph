@@ -48,8 +48,8 @@ class FashionLLM:
         gnn: Optional Temporal GNN for trend score forecasting.
     """
 
-    MODEL_ID: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-
+    # MODEL_ID: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    MODEL_ID: str = "mistralai/Mistral-7B-Instruct-v0.3"
     def __init__(
         self,
         retriever: FashionRetriever,

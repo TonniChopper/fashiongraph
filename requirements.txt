@@ -10,6 +10,7 @@ torch-geometric-temporal>=0.54.0
 langchain>=0.2.0
 langchain-community>=0.2.0
 chromadb>=0.5.0
+openai>=1.30.0         # GPT-4o API
 peft>=0.11.0          # LoRA fine-tuning
 bitsandbytes>=0.43.0  # QLoRA quantization
 
@@ -30,6 +31,13 @@ pandas>=2.2.0
 numpy>=1.26.0
 Pillow>=10.3.0
 datasets>=2.19.0      # HuggingFace datasets
+
+# Scraping
+crawl4ai>=0.4.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+html5lib>=1.1
+unidecode>=1.3.0
 
 # Utils
 python-dotenv>=1.0.0

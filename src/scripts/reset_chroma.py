@@ -1,7 +1,7 @@
 """Reset the ChromaDB 'fashion_knowledge' collection.
 
-Deletes the existing collection (if present) and creates a fresh,
-empty one using a persistent client.
+Completely wipes the ChromaDB directory on disk and recreates a fresh,
+empty collection.
 
 Usage::
 
@@ -9,6 +9,8 @@ Usage::
 """
 
 import logging
+import shutil
+from pathlib import Path
 
 import chromadb
 
@@ -18,25 +20,24 @@ logging.basicConfig(
 )
 logger: logging.Logger = logging.getLogger(__name__)
 
-CHROMA_PATH: str = "./chroma_db"
+CHROMA_PATH: Path = Path("data/chroma")
 COLLECTION_NAME: str = "fashion_knowledge"
 
 
 def main() -> None:
-    """Deletes and recreates the fashion_knowledge collection."""
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-
-    # Check if collection exists and delete it
-    existing: list[str] = [c.name for c in client.list_collections()]
-    if COLLECTION_NAME in existing:
-        client.delete_collection(COLLECTION_NAME)
-        logger.info("Deleted existing collection '%s'.", COLLECTION_NAME)
+    """Wipes the ChromaDB directory and recreates the collection."""
+    # Fully remove the directory on disk to guarantee a clean state
+    if CHROMA_PATH.exists():
+        shutil.rmtree(CHROMA_PATH)
+        logger.info("Removed ChromaDB directory: %s", CHROMA_PATH)
     else:
-        logger.info("Collection '%s' does not exist — nothing to delete.", COLLECTION_NAME)
+        logger.info("ChromaDB directory does not exist: %s — nothing to remove.", CHROMA_PATH)
 
-    # Create a fresh empty collection
+    # Recreate from scratch
+    CHROMA_PATH.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(CHROMA_PATH))
     client.create_collection(name=COLLECTION_NAME)
-    logger.info("Created new empty collection '%s'.", COLLECTION_NAME)
+    logger.info("Created fresh collection '%s'.", COLLECTION_NAME)
 
     print("ChromaDB reset successfully")
 

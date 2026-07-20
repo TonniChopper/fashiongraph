@@ -1,12 +1,33 @@
-venv/
-data/raw/
-*.pt
-.env
-.DS_Store
-.idea/
-venv/
-data/raw/
-data/embeddings/
-*.pt
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+venv/
+.venv/
+env/
 .env
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Data & model artifacts (never commit — build locally / on Colab)
+data/raw/
+data/processed/
+data/embeddings/
+data/checkpoints/
+data/chroma/
+chroma_db/
+*.pt
+*.bin
+*.pickle
+*.sqlite3
+
+# Experiment tracking
+wandb/

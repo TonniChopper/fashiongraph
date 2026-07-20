@@ -1,0 +1,16 @@
+/Users/andriikozlov/Projects/fashiongraph/venv/lib/python3.12/site-packages/requests/__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!
+  warnings.warn(
+vogue_rss: HTTP=200 feed=True items=30 https://www.vogue.com/slideshow/the-best-backstage-photos-from-the-fall-2026-sho
+elle: HTTP=200 feed=True items=50 https://www.elle.com/horoscopes/daily/a108/pisces-daily-horoscope/
+harpers: HTTP=200 feed=True items=50 https://www.harpersbazaar.com/celebrity/latest/a70654541/aubrey-plaza-paris-fash
+gq: HTTP=200 feed=True items=30 https://www.gq.com/story/how-to-actually-burn-off-belly-fat-and-why-it-matters-5
+id: HTTP=200 feed=True items=10 https://i-d.co/article/your-february-2026-in-photos/
+nylon: HTTP=404 feed=False items=0 
+esquire: HTTP=200 feed=True items=50 https://www.esquire.com/news-politics/politics/a70647443/trump-administration-se
+wmagazine: HTTP=404 feed=False items=0 
+highsnob: HTTP=200 feed=True items=10 https://www.highsnobiety.com/p/the-air-force-1-sakura-rose/
+grazia: HTTP=200 feed=True items=10 https://graziamagazine.com/articles/dior-fall-winter-2026-show/
+fashionista: HTTP=200 feed=True items=50 https://fashionista.com/2026/03/fashion-news-you-need-to-know-march-7
+fashiongonerogue: HTTP=200 feed=True items=10 https://www.fashiongonerogue.com/story/gisele-bundchen-marc-opolo-spring-2026/
+coveteur: HTTP=200 feed=True items=30 https://coveteur.com/patterned-colorful-tights
+crfashionbook: HTTP=200 feed=True items=10 https://crfashionbook.com/daily-beauty-must-have-products/

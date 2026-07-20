@@ -1,0 +1,10 @@
+TOTAL: 138
+  coveteur: 30
+  hypebeast: 23
+  dazed: 21
+  wwd.com: 21
+  harpersbazaar: 14
+  grazia: 10
+  i-d.co: 10
+  vogue.com: 7
+  other: 2

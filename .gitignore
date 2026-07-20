@@ -31,3 +31,4 @@ chroma_db/
 
 # Experiment tracking
 wandb/
+data/chroma/chroma.sqlite3

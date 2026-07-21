@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     # ---- Embeddings ---------------------------------------------------
     #: Default fashion image/text embedder (SOTA on fashion retrieval).
     fashion_embed_model: str = "Marqo/marqo-fashionSigLIP"
+    #: Garment segmentation model (segments an outfit photo into pieces).
+    seg_model: str = "sayeed99/segformer_b3_clothes"
+    #: Filename (under embeddings_dir) of the built product visual index.
+    visual_index_name: str = "products_fashionsiglip.npz"
     #: Text embedder for RAG / metadata re-ranking.
     text_embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     #: Device for text embedding: "auto" (mps→cuda→cpu), or force "mps"/"cpu".

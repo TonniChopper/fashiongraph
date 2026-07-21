@@ -148,6 +148,58 @@ LLM (self-instruct / distillation). The old repo already started this
 
 ---
 
+---
+
+# Aesthetic "fashion sense" data (cross-domain)
+
+The hardest problem: teaching the model *taste* — good vs. bad outfit — which is
+subjective and detail-dependent. Approach: a **learned aesthetic signal** from
+human judgments + interpretable aesthetic attributes, optionally enriched with
+art/architecture aesthetics (the cross-domain idea — these share compositional
+principles: proportion, balance, rhythm, colour harmony, structure).
+
+### In use now
+- **Surrey "Aesthetics"** ⭐ — ~70k human **pairwise** judgments ("which looks
+  better") + body-shape labels. Trains our `AestheticScorer` (Bradley-Terry head
+  on FashionSigLIP embeddings). Fashion-specific taste signal. Small/dated but
+  directly on-target. → `fg.training.train_aesthetic`
+
+### Strongly recommended next (interpretable aesthetics)
+- **AADB — Aesthetics & Attributes Database** ⭐ (~10k images). Aesthetic score
+  **plus 11 interpretable attributes**: balancing element, colour harmony,
+  content, depth of field, light, repetition, rule of thirds, symmetry, vivid
+  colour, object, motion blur. **These attributes transfer straight to outfit
+  critique** — train small predictors and expose "colour harmony / balance /
+  symmetry" as named scores that feed the styling rubric. Best value for
+  explainable taste.
+- **AVA — Aesthetic Visual Analysis** (~250k images, 1–10 crowd ratings). The
+  canonical general-aesthetics dataset; a broad "compositional beauty" prior.
+- **LAION aesthetic predictor** (`christophschuhmann/improved-aesthetic-predictor`)
+  — a *pretrained* CLIP-based aesthetic scorer. Drop-in general prior to blend
+  with the fashion-specific Surrey score (no training).
+
+### Cross-domain enrichment (your idea — art & architecture)
+The intuition is sound and it's a genuinely novel thesis angle (aesthetic
+transfer across visual domains). Use as **reference/enrichment, not hard
+judgment**:
+- **WikiArt** (`huggan/wikiart`, ~81k artworks, style/genre/artist). Map a look's
+  aesthetic to nearest **art movements** (Bauhaus ↔ minimalism, Baroque ↔
+  maximalism, Constructivism ↔ structured tailoring) and cite them in critique.
+- **Architectural styles dataset** (Kaggle, ~10k images, ~25 styles) /
+  **Architectural Heritage Elements**. Formal/structural vocabulary
+  (brutalism ↔ architectural silhouettes, Art Deco ↔ streamlined lines).
+
+**How it plugs in:** embed art/architecture images with the same
+image-embedding space (or CLIP), and add a "nearest aesthetic movement" retrieval
+so the stylist can reason "this reads Bauhaus — reductive, functional, tonal."
+Caveat: cross-domain mappings can be spurious; keep them as *evocative
+references*, and validate before trusting.
+
+**Priority:** Surrey (done) → AADB attributes (explainable taste) → LAION prior
+(free) → WikiArt/architecture (novel enrichment, Phase 5+).
+
+---
+
 ## Licensing note
 Kaggle sets are free but each has its own license/terms (H&M requires competition
 rules acceptance); Surrey is academic (cite Gaur & Mikolajczyk, ICPR 2014).

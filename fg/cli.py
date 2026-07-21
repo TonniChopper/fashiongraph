@@ -160,6 +160,84 @@ def _cmd_bootstrap(answers_path, out, backend, depth, fmt) -> None:
         print("\nSources: " + ", ".join(result.sources))
 
 
+def _build_look_review(backend: str | None):
+    """Constructs a LookReview with whatever vision components are available."""
+    from fg.capabilities.personal_stylist.look_review import LookReview
+
+    llm, ctx = _build_llm_and_context(backend)
+    embedder = segmenter = index = None
+    try:
+        from fg.vision.embedder import FashionEmbedder
+
+        embedder = FashionEmbedder()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: fashion embedder unavailable — no visual matching: {exc})")
+    try:
+        from fg.vision.index import VisualIndex
+
+        index = VisualIndex.load()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: visual index unavailable — run `fgraph vision build`: {exc})")
+    try:
+        from fg.vision.segmentation import GarmentSegmenter
+
+        segmenter = GarmentSegmenter()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: segmenter unavailable — no garment detection: {exc})")
+    scorer = None
+    try:
+        from fg.vision.aesthetics import AestheticScorer
+
+        scorer = AestheticScorer.load()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: aesthetic scorer unavailable — train it for taste scoring: {exc})")
+    matcher = None
+    if embedder is not None:
+        try:
+            from fg.vision.aesthetic_movements import MovementMatcher
+
+            matcher = MovementMatcher(embedder)
+        except Exception as exc:  # noqa: BLE001
+            print(f"(note: movement matcher unavailable: {exc})")
+    return LookReview(
+        llm, embedder=embedder, segmenter=segmenter, visual_index=index,
+        aesthetic_scorer=scorer, movement_matcher=matcher, context_builder=ctx,
+    )
+
+
+def _cmd_look(image, occasion, out, backend, depth, fmt) -> None:
+    """Runs a Personal Stylist look review on an image."""
+    from fg.brain.output_contract import OutputContract
+
+    reviewer = _build_look_review(backend)
+    print(f"\nReviewing {image}…\n")
+    result = reviewer.run(
+        {"image_path": image, "occasion": occasion or ""},
+        OutputContract.from_strings(depth, fmt),
+    )
+    if out:
+        Path(out).write_text(result.text, encoding="utf-8")
+        print(f"Saved → {out}")
+    else:
+        print(result.text)
+    if result.data.get("garments"):
+        print("\nDetected: " + ", ".join(result.data["garments"]))
+    if result.sources:
+        print("Sources: " + ", ".join(result.sources))
+
+
+def _cmd_vision_build(limit) -> None:
+    """Builds the product visual index (heavy — runs on the GPU)."""
+    from fg.vision.embedder import FashionEmbedder
+    from fg.vision.index import build_product_index
+
+    print("Loading fashion embedder (Marqo-FashionSigLIP)…")
+    embedder = FashionEmbedder()
+    print(f"Building visual index{f' (limit {limit})' if limit else ''}…")
+    path = build_product_index(embedder, limit=limit)
+    print(f"Saved visual index → {path}")
+
+
 def _cmd_route(query, backend) -> None:
     """Demonstrates the router: classify + dispatch across capabilities."""
     router = _build_router(backend)
@@ -205,6 +283,20 @@ def main() -> None:
     an_p.add_argument("--depth", default="detailed", help="surface|detailed|expert")
     an_p.add_argument("--format", default="report", help="chat|report|visual")
 
+    look_p = sub.add_parser("look", help="Personal Stylist look review (image in)")
+    look_p.add_argument("image", help="Path to an outfit photo")
+    look_p.add_argument("--occasion", default=None, help="Occasion/context, e.g. 'wedding'")
+    look_p.add_argument("--out", default=None, help="Write the review to this file")
+    look_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
+    look_p.add_argument("--depth", default="detailed", help="surface|detailed|expert")
+    look_p.add_argument("--format", default="report", help="chat|report|visual")
+
+    vision = sub.add_parser("vision", help="Visual index tools").add_subparsers(
+        dest="vision_command"
+    )
+    vbuild = vision.add_parser("build", help="Build the product visual index")
+    vbuild.add_argument("--limit", type=int, default=None, help="Cap images (quick build)")
+
     route_p = sub.add_parser("route", help="Classify + dispatch a request")
     route_p.add_argument("query", help="Natural-language request")
     route_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
@@ -215,6 +307,13 @@ def main() -> None:
         _cmd_bootstrap(args.answers, args.out, args.backend, args.depth, args.format)
     elif args.command == "analyze":
         _cmd_analyze(args.topic, args.out, args.backend, args.depth, args.format)
+    elif args.command == "look":
+        _cmd_look(args.image, args.occasion, args.out, args.backend, args.depth, args.format)
+    elif args.command == "vision":
+        if args.vision_command == "build":
+            _cmd_vision_build(args.limit)
+        else:
+            parser.parse_args(["vision", "--help"])
     elif args.command == "route":
         _cmd_route(args.query, args.backend)
     elif args.command == "data":

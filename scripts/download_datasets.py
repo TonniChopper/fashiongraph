@@ -23,6 +23,9 @@ Sets:
     vision      product images (small) + Fashionpedia
     aesthetics  Surrey body-shape + aesthetic pairwise dataset (small zip)
     hnm         FULL H&M recommendations (LARGE — opt-in)
+    art         WikiArt (art movements, for aesthetic lineage) — LARGE
+    polyvore    Polyvore outfits: likes + compatibility (LARGE) — outfit-level taste
+    aesthetics-plus  AVA subset + TAD66K general image-aesthetics priors (LARGE)
 """
 
 from __future__ import annotations
@@ -44,6 +47,13 @@ HF_DATASETS: dict[str, str] = {
     "tomytjandra/h-and-m-fashion-caption": "hm-caption",
     "detection-datasets/fashionpedia": "fashionpedia",
     "einrafh/hnm-fashion-recommendations-data": "hnm-full",
+    "huggan/wikiart": "wikiart",
+    # Outfit-level fashion data with implicit preference (likes) + compatibility.
+    "Marqo/polyvore": "polyvore",
+    "owj0421/polyvore-outfits": "polyvore-outfits",
+    # General image-aesthetics priors (human ratings) — transfer signal.
+    "trojblue/AVA-aesthetics-10pct-min50-10bins": "ava-aesthetics",
+    "Shuai1995/TAD66K_for_Image_Aesthetics_Assessment": "tad66k",
 }
 
 # Named sets → list of tasks. Each task: ("hf", repo_id) | ("zip", url, subdir) | ("wiki",)
@@ -71,9 +81,20 @@ SETS: dict[str, list[tuple]] = {
     "hnm": [
         ("hf", "einrafh/hnm-fashion-recommendations-data"),
     ],
+    "art": [
+        ("hf", "huggan/wikiart"),
+    ],
+    "polyvore": [
+        ("hf", "Marqo/polyvore"),
+        ("hf", "owj0421/polyvore-outfits"),
+    ],
+    "aesthetics-plus": [
+        ("hf", "trojblue/AVA-aesthetics-10pct-min50-10bins"),
+        ("hf", "Shuai1995/TAD66K_for_Image_Aesthetics_Assessment"),
+    ],
 }
 
-BIG_SETS = {"hnm"}
+BIG_SETS = {"hnm", "art", "polyvore", "aesthetics-plus"}
 
 # Curated Wikipedia pages — houses, designers, eras, garments, fabrics, weeks.
 WIKI_TITLES: list[str] = [

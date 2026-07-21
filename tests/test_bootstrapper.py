@@ -51,6 +51,7 @@ def test_run_grounds_prompt_with_answers_and_context():
     assert system.role == "system"
     assert "gorpcore" in user.content
     assert "Quiet luxury favours" in user.content  # retrieved grounding present
+    assert "(inferred)" in system.content  # grounding discipline applied
 
 
 def test_retrieval_query_prefers_semantic_fields():

@@ -13,6 +13,7 @@ from typing import Any
 
 from fg.brain.context_builder import ContextBuilder, FusionContext
 from fg.brain.output_contract import Depth, Format, OutputContract
+from fg.capabilities._prompts import GROUNDING_DISCIPLINE
 from fg.capabilities.base import Capability, CapabilityResult
 from fg.llm.base import LLM, Message
 
@@ -146,8 +147,8 @@ class BrandBootstrapper(Capability):
             "You are FashionGraph's Brand Bootstrapper — an AI co-founder with the "
             "eye of a creative director and the rigor of a brand strategist. You "
             "help independent designers turn a rough vision into a coherent brand. "
-            "Ground your choices in the provided fashion knowledge; be specific and "
-            "opinionated, never generic. " + contract.style_directive()
+            "Be specific and opinionated, never generic. "
+            + contract.style_directive() + " " + GROUNDING_DISCIPLINE
         )
 
         answers_block = "\n".join(
@@ -167,7 +168,9 @@ class BrandBootstrapper(Capability):
             "sits vs. references, launch channel, seasonal cadence.\n"
             "3. **Signature** — the ownable element and how it recurs.\n"
             "4. **Starter Collection** — 8–12 pieces with a one-line rationale each, "
-            "consistent with the DNA.\n"
+            "consistent with the DNA. Vary how the signature shows up across pieces "
+            "(some overt, some whisper-subtle, a few without it) so the line has "
+            "range and rhythm — do not repeat the same detail on every item.\n"
             "5. **Next Steps** — the first 3 concrete moves to launch.\n"
             "If the founder left something blank, make a strong, justified "
             "recommendation rather than asking."

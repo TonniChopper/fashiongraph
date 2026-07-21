@@ -71,10 +71,9 @@ def _cmd_data_smoke(query: str, n: int) -> None:
         print(f"  #{i} [{src}] {title}\n      {snippet}…  (dist={r['distance']:.3f})")
 
 
-def _build_bootstrapper(backend: str | None):
-    """Constructs a grounded BrandBootstrapper (RAG optional)."""
+def _build_llm_and_context(backend: str | None):
+    """Builds the LLM and a (RAG-grounded, if possible) context builder once."""
     from fg.brain.context_builder import ContextBuilder
-    from fg.capabilities.strategize.bootstrapper import BrandBootstrapper
     from fg.llm import get_llm
 
     llm = get_llm(backend) if backend else get_llm()
@@ -85,7 +84,52 @@ def _build_bootstrapper(backend: str | None):
         retriever = FashionRetriever()
     except Exception as exc:  # noqa: BLE001
         print(f"(note: running ungrounded — retriever unavailable: {exc})")
-    return BrandBootstrapper(llm, ContextBuilder(retriever))
+    return llm, ContextBuilder(retriever)
+
+
+def _build_bootstrapper(backend: str | None):
+    """Constructs a grounded BrandBootstrapper."""
+    from fg.capabilities.strategize.bootstrapper import BrandBootstrapper
+
+    llm, ctx = _build_llm_and_context(backend)
+    return BrandBootstrapper(llm, ctx)
+
+
+def _build_analyzer(backend: str | None):
+    """Constructs a grounded TrendAnalyzer."""
+    from fg.capabilities.understand.trend_analysis import TrendAnalyzer
+
+    llm, ctx = _build_llm_and_context(backend)
+    return TrendAnalyzer(llm, ctx)
+
+
+def _build_router(backend: str | None):
+    """Builds a router with both capabilities registered (shared LLM+context)."""
+    from fg.brain.router import FashionRouter
+    from fg.capabilities.strategize.bootstrapper import BrandBootstrapper
+    from fg.capabilities.understand.trend_analysis import TrendAnalyzer
+
+    llm, ctx = _build_llm_and_context(backend)
+    router = FashionRouter(llm=llm)
+    router.register(BrandBootstrapper(llm, ctx))
+    router.register(TrendAnalyzer(llm, ctx))
+    return router
+
+
+def _cmd_analyze(topic, out, backend, depth, fmt) -> None:
+    """Runs trend analysis on a topic."""
+    from fg.brain.output_contract import OutputContract
+
+    analyzer = _build_analyzer(backend)
+    print(f"\nAnalysing “{topic}”…\n")
+    result = analyzer.run(topic, OutputContract.from_strings(depth, fmt))
+    if out:
+        Path(out).write_text(result.text, encoding="utf-8")
+        print(f"Saved → {out}")
+    else:
+        print(result.text)
+    if result.sources:
+        print("\nSources: " + ", ".join(result.sources))
 
 
 def _cmd_bootstrap(answers_path, out, backend, depth, fmt) -> None:
@@ -117,16 +161,13 @@ def _cmd_bootstrap(answers_path, out, backend, depth, fmt) -> None:
 
 
 def _cmd_route(query, backend) -> None:
-    """Demonstrates the router: classify + dispatch."""
-    from fg.brain.router import FashionRouter
-    from fg.llm import get_llm
-
-    llm = get_llm(backend) if backend else get_llm()
-    router = FashionRouter(llm=llm)
-    router.register(_build_bootstrapper(backend))
+    """Demonstrates the router: classify + dispatch across capabilities."""
+    router = _build_router(backend)
     print(f"Intent: {router.classify(query).value}\n")
     result = router.route(query)
     print(result.text)
+    if result.sources:
+        print("\nSources: " + ", ".join(result.sources))
 
 
 def main() -> None:
@@ -157,6 +198,13 @@ def main() -> None:
     boot_p.add_argument("--depth", default="detailed", help="surface|detailed|expert")
     boot_p.add_argument("--format", default="report", help="chat|report|visual")
 
+    an_p = sub.add_parser("analyze", help="Trend analysis on a topic")
+    an_p.add_argument("topic", help="Trend / era / aesthetic, e.g. 'quiet luxury'")
+    an_p.add_argument("--out", default=None, help="Write the analysis to this file")
+    an_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
+    an_p.add_argument("--depth", default="detailed", help="surface|detailed|expert")
+    an_p.add_argument("--format", default="report", help="chat|report|visual")
+
     route_p = sub.add_parser("route", help="Classify + dispatch a request")
     route_p.add_argument("query", help="Natural-language request")
     route_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
@@ -165,6 +213,8 @@ def main() -> None:
 
     if args.command == "bootstrap":
         _cmd_bootstrap(args.answers, args.out, args.backend, args.depth, args.format)
+    elif args.command == "analyze":
+        _cmd_analyze(args.topic, args.out, args.backend, args.depth, args.format)
     elif args.command == "route":
         _cmd_route(args.query, args.backend)
     elif args.command == "data":

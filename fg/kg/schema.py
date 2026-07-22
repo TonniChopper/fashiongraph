@@ -79,6 +79,35 @@ RELATION_SYNONYMS: dict[str, str] = {
 }
 
 
+#: Trailing tokens stripped during entity resolution (legal/product suffixes).
+_CORPORATE_SUFFIXES: frozenset[str] = frozenset({
+    "se", "sa", "inc", "ltd", "llc", "group", "holding", "holdings",
+    "couture", "parfums", "parfum", "beauty", "cosmetics", "eyewear",
+    "watchmaking", "freres", "brand", "label", "maison", "house",
+})
+
+#: Explicit variant → canonical merges (curated; extend as needed).
+_ENTITY_ALIASES: dict[str, str] = {
+    "christian dior": "dior", "dior homme": "dior", "miss dior": "dior",
+    "yves saint laurent": "saint laurent", "ysl": "saint laurent",
+    "saint laurent paris": "saint laurent",
+    "louis vuitton malletier": "louis vuitton",
+    "cristobal balenciaga": "balenciaga",
+    "gabrielle chanel": "chanel", "coco chanel": "chanel",
+    "the row": "the row",  # protect from "the" handling
+}
+
+_YEAR_TOKEN_RE = re.compile(r"^(1[89]\d0s?|20\d0s?|\d{4})$")
+
+
+def _strip_suffixes(key: str) -> str:
+    """Repeatedly drops trailing corporate/product tokens (keeps ≥1 token)."""
+    tokens = key.split()
+    while len(tokens) > 1 and tokens[-1] in _CORPORATE_SUFFIXES:
+        tokens.pop()
+    return " ".join(tokens)
+
+
 def canonical_relation(relation: str) -> str:
     """Maps a raw relation to a canonical one, or ``""`` if unmappable.
 
@@ -119,6 +148,55 @@ def normalize_entity(name: str) -> str:
     return " ".join(folded.split())
 
 
+def canonical_entity(name: str) -> str:
+    """Resolves a surface form to a canonical node key (the entity-linking step).
+
+    Pipeline: :func:`normalize_entity` → strip corporate/product suffixes →
+    apply the alias map. So ``Christian Dior Couture`` → ``dior`` and ``YSL`` →
+    ``saint laurent``. This is the Farfetch "link" step; keep the alias map
+    conservative to avoid wrong merges.
+
+    Args:
+        name: Raw entity string.
+
+    Returns:
+        The canonical node key.
+    """
+    key = normalize_entity(name)
+    if key in _ENTITY_ALIASES:
+        return _ENTITY_ALIASES[key]
+    key = _strip_suffixes(key)
+    return _ENTITY_ALIASES.get(key, key)
+
+
+def is_plausible_entity(name: str) -> bool:
+    """Rejects extraction-noise entities (phrase fragments, years, stubs).
+
+    Filters the junk we observed (``ne``, ``john galliano from givenchy dior
+    and his eponymous line``, ``1950s christian dior silhouettes``).
+
+    Args:
+        name: Raw entity surface form.
+
+    Returns:
+        ``True`` if the entity looks like a real, concise fashion entity.
+    """
+    key = normalize_entity(name)
+    if len(key) < 3:                          # stubs like "ne" (sliced "Céli|ne")
+        return False
+    words = key.split()
+    if len(words) > 6:                       # phrase, not an entity
+        return False
+    # A bare decade/year IS a valid era ("1990s"); reject only when a year is
+    # embedded in a multi-word phrase ("ysl fall 1960 dior collection").
+    if len(words) > 1 and any(_YEAR_TOKEN_RE.match(w) for w in words):
+        return False
+    # Sentence-fragment markers.
+    if any(m in f" {key} " for m in (" from ", " and his ", " including ", " where ")):
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class Triple:
     """A single subject–relation–object fact.
@@ -140,20 +218,22 @@ class Triple:
     source: str = ""
 
     def is_valid(self) -> bool:
-        """Returns whether the triple is well-formed and in-schema."""
+        """Returns whether the triple is well-formed, in-schema, and non-noisy."""
         return bool(
             self.subject.strip()
             and self.object.strip()
             and self.relation in RELATION_TYPES
-            and normalize_entity(self.subject) != normalize_entity(self.object)
+            and self.subject_key != self.object_key
+            and is_plausible_entity(self.subject)
+            and is_plausible_entity(self.object)
         )
 
     @property
     def subject_key(self) -> str:
-        """Canonical subject key."""
-        return normalize_entity(self.subject)
+        """Canonical (resolved) subject key."""
+        return canonical_entity(self.subject)
 
     @property
     def object_key(self) -> str:
-        """Canonical object key."""
-        return normalize_entity(self.object)
+        """Canonical (resolved) object key."""
+        return canonical_entity(self.object)

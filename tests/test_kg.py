@@ -4,7 +4,13 @@ and context-builder KG grounding."""
 from fg.brain.context_builder import ContextBuilder
 from fg.kg.evaluate import fact_coverage, parse_judge_verdict
 from fg.kg.extractor import parse_triples
-from fg.kg.schema import Triple, canonical_relation, normalize_entity
+from fg.kg.schema import (
+    Triple,
+    canonical_entity,
+    canonical_relation,
+    is_plausible_entity,
+    normalize_entity,
+)
 from fg.kg.store import KnowledgeGraph
 
 
@@ -21,6 +27,32 @@ def test_normalize_entity_folds_accents_and_punct():
     assert normalize_entity("Christian_Dior") == normalize_entity("Christian Dior")
     assert normalize_entity("Comme des Garçons") == "comme des garcons"
     assert normalize_entity("Yves Saint Laurent") == "yves saint laurent"
+
+
+def test_canonical_entity_merges_variants():
+    # The Dior fragmentation we diagnosed collapses to one node.
+    for v in ["Christian Dior", "Christian Dior Couture", "Dior Homme",
+              "Christian Dior SE", "Dior Parfums", "christian_dior"]:
+        assert canonical_entity(v) == "dior"
+    assert canonical_entity("YSL") == canonical_entity("Yves Saint Laurent") == "saint laurent"
+    assert canonical_entity("Prada") == "prada"  # unaffected
+
+
+def test_is_plausible_entity_rejects_noise():
+    # Junk we actually saw in the graph.
+    assert not is_plausible_entity("ne")
+    assert not is_plausible_entity("john galliano from givenchy dior and his eponymous line")
+    assert not is_plausible_entity("1950s christian dior silhouettes")
+    assert not is_plausible_entity("ysl fall 1960 dior collection")
+    # Real entities pass.
+    assert is_plausible_entity("Maison Margiela")
+    assert is_plausible_entity("Hedi Slimane")
+
+
+def test_triple_drops_noisy_entities():
+    t = Triple("Dior", "creative_director",
+               "john galliano from givenchy dior and his eponymous line")
+    assert not t.is_valid()
 
 
 def test_triple_validity():

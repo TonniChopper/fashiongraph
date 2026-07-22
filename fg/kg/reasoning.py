@@ -16,7 +16,7 @@ import logging
 from collections import deque
 from typing import Any
 
-from fg.kg.schema import normalize_entity
+from fg.kg.schema import canonical_entity
 from fg.kg.store import KnowledgeGraph
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class GraphReasoner:
             A list of paths; each path is a list of oriented step dicts
             (``from``/``relation``/``to``). Empty if unreachable.
         """
-        src_k, dst_k = normalize_entity(src), normalize_entity(dst)
+        src_k, dst_k = canonical_entity(src), canonical_entity(dst)
         if src_k == dst_k:
             return []
         frontier: deque[tuple[str, list[dict]]] = deque([(src_k, [])])
@@ -96,10 +96,10 @@ class GraphReasoner:
     def two_hop(self, entity: str, limit: int = 40) -> list[dict]:
         """Returns facts one and two hops out from *entity* (neighbourhood)."""
         first = self.kg.neighbors(entity, limit=limit)
-        keys = {normalize_entity(f["object"]) for f in first} | {
-            normalize_entity(f["subject"]) for f in first
+        keys = {canonical_entity(f["object"]) for f in first} | {
+            canonical_entity(f["subject"]) for f in first
         }
-        keys.discard(normalize_entity(entity))
+        keys.discard(canonical_entity(entity))
         second: list[dict] = []
         for k in list(keys)[:limit]:
             second.extend(self.kg.neighbors(k, limit=5))

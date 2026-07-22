@@ -314,6 +314,28 @@ def _cmd_kg_who(relation, obj) -> None:
         print(f"  • {s}")
 
 
+def _cmd_kg_predict(entity, k, add, backend) -> None:
+    """Predicts plausible missing edges for an entity (one-shot ICL)."""
+    from fg.kg.link_prediction import predict_links
+    from fg.kg.store import KnowledgeGraph
+    from fg.llm import get_llm
+
+    llm = get_llm(backend) if backend else get_llm()
+    kg = KnowledgeGraph()
+    preds = predict_links(entity, kg, llm, k=k)
+    if not preds:
+        print(f"No predictions for {entity!r} (is the KG built?).")
+        return
+    print(f"\nPredicted missing facts for {entity!r}:\n")
+    for t in preds:
+        print(f"  ? {t.subject} —{t.relation.replace('_',' ')}→ {t.object}")
+    if add:
+        n = kg.add_triples(preds)
+        print(f"\nAdded {n} predicted edges (source=llm_predicted).")
+    else:
+        print("\n(use --add to insert these as source=llm_predicted)")
+
+
 def _cmd_kg_eval(n, backend, judge) -> None:
     """Runs the KG-vs-flat-RAG lift experiment."""
     from fg.kg.evaluate import evaluate_lift
@@ -422,6 +444,11 @@ def main() -> None:
     kgw = kg.add_parser("who", help="One-hop filter: who <relation> <object>")
     kgw.add_argument("relation", help="Relation, e.g. based_in")
     kgw.add_argument("object", help="Object entity, e.g. Milan")
+    kgpr = kg.add_parser("predict", help="Predict missing edges (one-shot ICL)")
+    kgpr.add_argument("entity", help="Entity to predict links for")
+    kgpr.add_argument("-k", type=int, default=5, help="Number of predictions")
+    kgpr.add_argument("--add", action="store_true", help="Insert predictions (source=llm_predicted)")
+    kgpr.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
 
     route_p = sub.add_parser("route", help="Classify + dispatch a request")
     route_p.add_argument("query", help="Natural-language request")
@@ -453,6 +480,8 @@ def main() -> None:
             _cmd_kg_path(args.src, args.dst, args.hops)
         elif args.kg_command == "who":
             _cmd_kg_who(args.relation, args.object)
+        elif args.kg_command == "predict":
+            _cmd_kg_predict(args.entity, args.k, args.add, args.backend)
         else:
             parser.parse_args(["kg", "--help"])
     elif args.command == "route":

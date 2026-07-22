@@ -16,7 +16,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from fg.config import settings
-from fg.kg.schema import Triple, normalize_entity
+from fg.kg.schema import Triple, canonical_entity
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class KnowledgeGraph:
         Returns:
             Fact dicts with subject/relation/object/source.
         """
-        key = normalize_entity(entity)
+        key = canonical_entity(entity)
         cur = self.conn.execute(
             """SELECT subject, relation, object, subject_type, object_type, source
                FROM triples WHERE subject_key = ? OR object_key = ? LIMIT ?""",
@@ -153,7 +153,7 @@ class KnowledgeGraph:
         cur = self.conn.execute(
             """SELECT DISTINCT subject FROM triples
                WHERE relation = ? AND object_key = ?""",
-            (relation, normalize_entity(object_name)),
+            (relation, canonical_entity(object_name)),
         )
         return [r[0] for r in cur.fetchall()]
 
@@ -166,7 +166,7 @@ class KnowledgeGraph:
         Returns:
             Fact dicts with relation/object.
         """
-        key = normalize_entity(entity)
+        key = canonical_entity(entity)
         cur = self.conn.execute(
             "SELECT relation, object, object_type FROM triples WHERE subject_key = ?",
             (key,),

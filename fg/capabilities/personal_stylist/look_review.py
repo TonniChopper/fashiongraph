@@ -40,6 +40,20 @@ class Perception:
     aesthetic_score: int | None = None
     movements: list[tuple[str, float]] = field(default_factory=list)
     associations: list[dict[str, Any]] = field(default_factory=list)
+    runway_designers: list[tuple[str, float]] = field(default_factory=list)
+    runway_collections: list[tuple[str, float]] = field(default_factory=list)
+    runway_lineage: list[str] = field(default_factory=list)
+
+    def runway_text(self) -> str:
+        """Renders nearest runway designers/collections + top-match lineage."""
+        if not self.runway_designers:
+            return ""
+        d = ", ".join(f"{n} ({s})" for n, s in self.runway_designers)
+        c = ", ".join(f"{n} ({s})" for n, s in self.runway_collections)
+        out = f"Designers: {d}\nCollections: {c}"
+        if self.runway_lineage:
+            out += "\nLineage of top match (from KG): " + "; ".join(self.runway_lineage[:5])
+        return out
 
     def movements_text(self) -> str:
         """Renders the nearest aesthetic movements."""
@@ -94,6 +108,8 @@ class LookReview(Capability):
         aesthetic_scorer: Any | None = None,
         movement_matcher: Any | None = None,
         kg_linker: Any | None = None,
+        runway_linker: Any | None = None,
+        kg: Any | None = None,
         context_builder: ContextBuilder | None = None,
         vision: bool = False,
     ) -> None:
@@ -115,6 +131,8 @@ class LookReview(Capability):
         self.aesthetic_scorer = aesthetic_scorer
         self.movement_matcher = movement_matcher
         self.kg_linker = kg_linker
+        self.runway_linker = runway_linker
+        self.kg = kg
         self.context_builder = context_builder or ContextBuilder(None)
         self.vision = vision
 
@@ -229,9 +247,24 @@ class LookReview(Capability):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("KG linking failed (%s).", exc)
 
+        rw_designers: list[tuple[str, float]] = []
+        rw_collections: list[tuple[str, float]] = []
+        rw_lineage: list[str] = []
+        if vec is not None and self.runway_linker is not None:
+            try:
+                rw = self.runway_linker.link(vec)
+                rw_designers = rw["designers"]
+                rw_collections = rw["collections"]
+                if self.kg is not None and rw_designers:
+                    rw_lineage = self.kg.facts_as_text(rw_designers[0][0], limit=6)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Runway linking failed (%s).", exc)
+
         return Perception(
             garments=garments, similar=similar, aesthetic_score=score,
             movements=movements, associations=associations,
+            runway_designers=rw_designers, runway_collections=rw_collections,
+            runway_lineage=rw_lineage,
         )
 
     @staticmethod
@@ -285,14 +318,21 @@ class LookReview(Capability):
             f"describe the look's design language — don't force them.\n"
             if perception.movements else ""
         )
+        runway_block = (
+            "\n## Nearest runway looks (image↔image match to REAL collections)\n"
+            f"{perception.runway_text()}\n"
+            "These are the actual runway looks your image is visually closest to. "
+            "Your Design Lineage MUST be built from THESE named designers/"
+            "collections only — cite them explicitly. Do NOT substitute a famous "
+            "designer who is not in this list (e.g. do not say 'Phoebe Philo' "
+            "unless listed). Speak of resemblance ('reads like…', 'traces to…'), "
+            "never attribution.\n"
+            if perception.runway_designers else ""
+        )
         association_block = (
-            "\n## Design-language associations (knowledge-graph linked — "
-            "associative, NOT attribution)\n"
+            "\n## Design-language associations (secondary, text-derived)\n"
             f"{perception.associations_text()}\n"
-            "These are designers/aesthetics whose design language the look "
-            "resembles, with their lineage from the graph. Speak of *resemblance* "
-            "and *lineage* ('reads like…', 'in the language of…', 'traces to…') — "
-            "never claim the outfit IS by them.\n"
+            "Weaker signal than the runway matches above; use only to enrich.\n"
             if perception.associations else ""
         )
         score_line = (
@@ -305,7 +345,7 @@ class LookReview(Capability):
             f"## The look\n"
             f"Detected garments: {perception.garments_text()}\n"
             f"{score_line}{movement_line}{occasion_line}"
-            f"{association_block}\n"
+            f"{runway_block}{association_block}\n"
             # With vision on, the model reads the real outfit; the (womenswear-
             # skewed) catalog matches only mislead, so we omit them.
             + ("" if seeing else

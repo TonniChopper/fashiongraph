@@ -110,6 +110,30 @@ match above. Do only if #1–#3 prove too loose.
 > and VLM — and targets a gap: fashion KGs are symbolic, fashion vision is
 > KG-less; joining them is underexplored.
 
+## Grounding in the MMKG literature (citations + terminology)
+
+Our approach is an instance of **Multimodal Knowledge Graphs (MMKG)** — an
+established area. Adopt its terminology and cite it; the *novelty* is MMKG applied
+to **fashion reasoning + stylist grounding**, which is underexplored.
+
+- **"Mirror node"** = attach an image embedding to a textual entity node (What-Is-
+  a-MMKG survey). This is exactly our **visual node prototype** (#2) — use this term.
+- **KG4MM vs MM4KG** taxonomy (*Knowledge Graphs Meet Multi-Modal Learning*,
+  arXiv:2402.05391): KG-helps-vision vs vision-helps-KG. FashionGraph does **both**
+  (KG grounds the stylist *and* runway images ground/extend the KG) — a clean framing.
+- **Annotation-free MMKG construction** (arXiv:2503.12972) — justifies our VLM
+  visual-extraction (#3): build image-grounded edges without manual labels.
+- **MR-MKG** (arXiv:2406.02030) — relation-graph attention + cross-modal alignment
+  module → the citation/blueprint for our cross-modal alignment (#5).
+- **MMGraphRAG** (arXiv:2507.20804) / MMKG-enhanced RAG (arXiv:2508.05318) →
+  our KG-grounded retrieval, extended to vision.
+- Surveys / repos for Related Work: MMKG survey (arXiv:2202.05786), KG-MM-Survey
+  (github zjukg/KG-MM-Survey), awesome-multimodal-knowledge-graph.
+
+Suggested stack (from the doc) ≈ ours: CLIP/fashion-ViT (Marqo ✓), LLM extraction
+(✓), graph DB with **mirror nodes** (we use SQLite + a parallel vector index, not
+Neo4j), contrastive/cross-attention alignment (future #5), MMGraphRAG layer (✓).
+
 ## Open decisions
 - Prototype (centroid) vs k-NN vs both for look→node — start with **both**
   (centroid coarse, k-NN fine), measure.

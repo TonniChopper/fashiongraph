@@ -38,12 +38,23 @@ All capabilities share a **grounding discipline** that curbs brand hallucination
 garment segmentation (`segformer_b3_clothes`), a numpy visual index, and a
 **learned aesthetic scorer** trained on human pairwise preference judgments
 (**0.703 held-out pairwise accuracy** on worn-outfit taste). Plus a styling
-rubric and an art/architecture **aesthetic-lineage** matcher.
+rubric and an art/architecture **aesthetic-lineage** matcher. The Personal
+Stylist now runs on a **vision-language model** (Ollama Qwen2.5-VL / Llama-3.2-
+Vision), so it actually *sees* the outfit rather than guessing from labels.
 
 **Phase 4 — Knowledge graph.** `fg/kg/` — LLM-assisted triple extraction into a
-fixed fashion ontology, a SQLite triple store, graph reasoning (path-finding,
-multi-hop queries), and KG facts wired into retrieval. From 40 Wikipedia pages:
-**~1,040 triples / 1,035 entities**.
+fixed fashion ontology, a SQLite triple store, **entity resolution** (alias
+merge + noise filter), graph reasoning (path-finding, multi-hop), one-shot-ICL
+**link prediction**, and KG facts wired into retrieval. From 100 Wikipedia pages:
+**~2,500 triples / ~2,300 entities**.
+
+**Phase 5 (in progress) — Multimodal KG grounding (the novel core).** A
+**runway visual index** over ~2,200 designer-labeled Vogue looks (11 houses)
+links a photo to the *nearest real runway collections* (image↔image) and
+traverses the KG for lineage — turning "reads minimalist" into "nearest to
+Marni / Rick Owens; lineage traces to …". See **[NOVEL_IDEAS.md](NOVEL_IDEAS.md)**
+for the full multimodal-KG roadmap (visual node prototypes, VLM-extracted edges,
+cross-modal alignment).
 
 ### Headline result: does the KG earn its place?
 
@@ -72,10 +83,12 @@ a stronger judge / human panel is future work. See `fg/kg/evaluate.py`.)*
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"           # core + dev tools
 pip install -e ".[rag,vision]"    # RAG + vision extras
-pytest                            # 102 passing
+pytest                            # 124 passing
 
 # Local LLM (recommended on Apple Silicon):
-brew install ollama && ollama pull qwen2.5:7b-instruct
+brew install ollama
+ollama pull qwen2.5:7b-instruct   # text (bootstrap / analyze / KG)
+ollama pull qwen2.5vl:7b          # vision (look review) — or llama3.2-vision
 # …or use the API: put OPENAI_API_KEY in .env and pass --backend openai
 ```
 
@@ -95,14 +108,19 @@ fgraph data smoke "quiet luxury tailoring"
 # Capabilities
 fgraph bootstrap --answers examples/brand_answers.example.json --out brand.md
 fgraph analyze "gorpcore" --depth expert
-fgraph look outfit.jpg --occasion "wedding"          # needs [vision] + a built visual index
+fgraph look outfit.jpg --occasion "wedding" --out review.md   # VLM sees the photo
+
+# Vision indexes (heavy, one-time, GPU)
+fgraph vision build            # product visual index (similar pieces)
+fgraph vision build-runway     # runway index → image↔image designer lineage
 
 # Knowledge graph
-fgraph kg build --limit 40                           # extract triples (uses the LLM)
+fgraph kg build --limit 100                          # extract triples (uses the LLM)
 fgraph kg stats
 fgraph kg query "Prada"                              # facts for one entity
 fgraph kg who based_in Milan                         # one-hop relational filter
 fgraph kg path "Raf Simons" "Prada"                  # multi-hop reasoning
+fgraph kg predict "Celine" -k 5                      # one-shot ICL link prediction
 fgraph kg eval -n 8 --judge                          # KG-vs-RAG lift experiment
 
 # The router picks the capability itself
@@ -110,7 +128,7 @@ fgraph route "help me start a quiet-luxury knitwear label"
 ```
 
 Training (Colab/M4): `python -m fg.training.train_aesthetic --sources surrey`
-(aesthetic scorer), `python -m fg.vision ...`/`fgraph vision build` (visual index).
+(aesthetic scorer). Local models: `ollama pull qwen2.5vl:7b` for the vision review.
 
 ## Layout
 
@@ -118,22 +136,26 @@ Training (Colab/M4): `python -m fg.training.train_aesthetic --sources surrey`
 fg/
 ├── brain/          # router, context_builder, output_contract, memory
 ├── capabilities/   # understand (trend), strategize (bootstrapper), personal_stylist (look review)
-├── llm/            # provider-agnostic LLM interface + Ollama/OpenAI backends
-├── kg/             # schema, SQLite store, extractor, reasoning (paths), evaluate (lift)
+├── llm/            # provider-agnostic LLM interface (text + vision) + backends
+├── kg/             # schema+resolution, SQLite store, extractor, reasoning, evaluate, link_prediction
 ├── rag/            # indexer, retriever, visual_retriever, fusion (RRF), embeddings
-├── vision/         # embedder (Marqo), segmentation, index, aesthetics, aesthetic_movements
-├── models/         # CLIP encoder, Temporal GNN
+├── vision/         # embedder (Marqo), segmentation, index, aesthetics, movements, kg_linker, runway
+├── models/         # CLIP encoder, Temporal GNN (parked trend module)
 ├── data/           # ingest pipeline (schema, clean, sources) + CLI
 ├── training/       # aesthetic scorer, CLIP fine-tune, pair sources
 └── api/            # FastAPI + WebSocket (Phase 6, not yet built)
 ```
 
-## Roadmap from here
+## Roadmap from here (multimodal-KG core — see NOVEL_IDEAS.md)
 
-- **Path A — look → KG linking**: connect an outfit photo to designers /
-  aesthetics / lineage via the shared image-text space + graph traversal.
-- **Worn-together edges (Polyvore)**: outfit-compatibility → Complete-the-Look.
-- **FashionKLIP concept alignment**: fine-tune the embedder for sharper
-  concept-level linking (if associative linking proves too loose).
-- **Scale the graph**: more corpus → denser connectivity → richer multi-hop.
-- **Phases 5–7**: LoRA fine-tune, FastAPI + tldraw canvas, generative modules.
+- **Grounding eval**: held-out *designer top-k accuracy* for the runway linker — a
+  clean quantitative result for the thesis.
+- **VLM visual extraction**: run the VLM over the runway images to generate the
+  missing per-look captions *and* image-grounded KG edges.
+- **Visual node prototypes**: per-designer visual centroid attached to each KG
+  node (the literal multimodal KG node).
+- **Cross-modal alignment**: align graph-structural embeddings (node2vec/TransE)
+  with the SigLIP space — the deepest, most publishable grounding.
+- **Later**: worn-together edges (Polyvore → Complete-the-Look), FashionKLIP
+  embedder fine-tune, trend-forecasting (repurpose the Temporal GNN on the runway
+  seasons), FastAPI + tldraw canvas.

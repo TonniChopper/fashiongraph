@@ -218,22 +218,34 @@ def _build_look_review(backend: str | None):
             matcher = MovementMatcher(embedder)
         except Exception as exc:  # noqa: BLE001
             print(f"(note: movement matcher unavailable: {exc})")
+    from pathlib import Path as _P
+
+    kg = None
     linker = None
+    try:
+        from fg.kg.store import KnowledgeGraph, _default_db_path
+
+        if _P(_default_db_path()).exists():
+            kg = KnowledgeGraph()
+            if embedder is not None:
+                from fg.vision.kg_linker import KGEntityLinker
+
+                linker = KGEntityLinker(embedder, kg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: KG unavailable: {exc})")
+    runway = None
     if embedder is not None:
         try:
-            from pathlib import Path as _P
+            from fg.vision.runway import RunwayLinker, _default_runway_index_path
 
-            from fg.kg.store import KnowledgeGraph, _default_db_path
-            from fg.vision.kg_linker import KGEntityLinker
-
-            if _P(_default_db_path()).exists():
-                linker = KGEntityLinker(embedder, KnowledgeGraph())
+            if _P(_default_runway_index_path()).exists():
+                runway = RunwayLinker()
         except Exception as exc:  # noqa: BLE001
-            print(f"(note: KG linker unavailable: {exc})")
+            print(f"(note: runway linker unavailable — run `fgraph vision build-runway`: {exc})")
     return LookReview(
         llm, embedder=embedder, segmenter=segmenter, visual_index=index,
         aesthetic_scorer=scorer, movement_matcher=matcher, kg_linker=linker,
-        context_builder=ctx, vision=True,
+        runway_linker=runway, kg=kg, context_builder=ctx, vision=True,
     )
 
 
@@ -268,6 +280,35 @@ def _cmd_vision_build(limit) -> None:
     print(f"Building visual index{f' (limit {limit})' if limit else ''}…")
     path = build_product_index(embedder, limit=limit)
     print(f"Saved visual index → {path}")
+
+
+def _cmd_vision_build_runway(limit) -> None:
+    """Builds the runway visual index from labeled Vogue imagery."""
+    from fg.vision.embedder import FashionEmbedder
+    from fg.vision.runway import build_runway_index
+
+    print("Loading fashion embedder (Marqo-FashionSigLIP)…")
+    embedder = FashionEmbedder()
+    print(f"Building runway index{f' (limit {limit})' if limit else ''}…")
+    path = build_runway_index(embedder, limit=limit)
+    print(f"Saved runway index → {path}")
+
+
+def _cmd_vision_eval_runway(holdout, neighbors) -> None:
+    """Runs held-out designer top-k accuracy on the runway index (no model)."""
+    from fg.vision.index import VisualIndex
+    from fg.vision.runway import _default_runway_index_path
+    from fg.vision.runway_eval import evaluate_designer_topk
+
+    index = VisualIndex.load(_default_runway_index_path())
+    for split in ("image", "collection"):
+        res = evaluate_designer_topk(index, holdout_frac=holdout,
+                                     neighbors=neighbors, split_by=split)
+        label = "by-image (leaky)" if split == "image" else "by-collection (honest)"
+        print(f"\nRunway grounding [{label}] — {res['n_test']} held-out looks, "
+              f"{res['n_designers']} designers:")
+        print(f"  top-1: {res['top1']:.3f}   top-3: {res['top3']:.3f}   "
+              f"top-5: {res['top5']:.3f}   (random top-1: {res['random_top1']:.3f})")
 
 
 def _cmd_kg_build(source, limit, backend) -> None:
@@ -446,6 +487,11 @@ def main() -> None:
     )
     vbuild = vision.add_parser("build", help="Build the product visual index")
     vbuild.add_argument("--limit", type=int, default=None, help="Cap images (quick build)")
+    vrun = vision.add_parser("build-runway", help="Build the runway visual index (Vogue)")
+    vrun.add_argument("--limit", type=int, default=None, help="Cap images (quick build)")
+    veval = vision.add_parser("eval-runway", help="Designer top-k grounding accuracy")
+    veval.add_argument("--holdout", type=float, default=0.2, help="Held-out fraction")
+    veval.add_argument("--neighbors", type=int, default=10, help="kNN neighbours to vote")
 
     kg = sub.add_parser("kg", help="Knowledge graph tools").add_subparsers(dest="kg_command")
     kgb = kg.add_parser("build", help="Extract triples from the corpus into the KG")
@@ -487,6 +533,10 @@ def main() -> None:
     elif args.command == "vision":
         if args.vision_command == "build":
             _cmd_vision_build(args.limit)
+        elif args.vision_command == "build-runway":
+            _cmd_vision_build_runway(args.limit)
+        elif args.vision_command == "eval-runway":
+            _cmd_vision_eval_runway(args.holdout, args.neighbors)
         else:
             parser.parse_args(["vision", "--help"])
     elif args.command == "kg":

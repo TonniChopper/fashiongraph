@@ -33,3 +33,4 @@ chroma_db/
 wandb/
 data/chroma/chroma.sqlite3
 THESIS_RELATED_WORK.md
+graphify-out/

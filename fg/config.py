@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     seg_model: str = "sayeed99/segformer_b3_clothes"
     #: Filename (under embeddings_dir) of the built product visual index.
     visual_index_name: str = "products_fashionsiglip.npz"
+    #: Filename of the runway visual index (designer/collection-labeled looks).
+    runway_index_name: str = "runway_fashionsiglip.npz"
     #: Text embedder for RAG / metadata re-ranking.
     text_embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     #: Device for text embedding: "auto" (mps→cuda→cpu), or force "mps"/"cpu".

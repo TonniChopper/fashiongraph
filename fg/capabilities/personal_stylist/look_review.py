@@ -39,10 +39,19 @@ class Perception:
     similar: list[dict[str, Any]] = field(default_factory=list)
     aesthetic_score: int | None = None
     movements: list[tuple[str, float]] = field(default_factory=list)
+    associations: list[dict[str, Any]] = field(default_factory=list)
 
     def movements_text(self) -> str:
         """Renders the nearest aesthetic movements."""
         return ", ".join(f"{n} ({s})" for n, s in self.movements) if self.movements else ""
+
+    def associations_text(self) -> str:
+        """Renders KG-linked design-language associations + their lineage."""
+        lines: list[str] = []
+        for a in self.associations:
+            lineage = "; ".join(a.get("facts", [])[:4])
+            lines.append(f"- {a['entity']} (sim {a['score']}): {lineage}")
+        return "\n".join(lines)
 
     def garments_text(self) -> str:
         """Human-readable garment list."""
@@ -84,7 +93,9 @@ class LookReview(Capability):
         visual_index: Any | None = None,
         aesthetic_scorer: Any | None = None,
         movement_matcher: Any | None = None,
+        kg_linker: Any | None = None,
         context_builder: ContextBuilder | None = None,
+        vision: bool = False,
     ) -> None:
         """Initializes the look-review capability.
 
@@ -103,7 +114,9 @@ class LookReview(Capability):
         self.visual_index = visual_index
         self.aesthetic_scorer = aesthetic_scorer
         self.movement_matcher = movement_matcher
+        self.kg_linker = kg_linker
         self.context_builder = context_builder or ContextBuilder(None)
+        self.vision = vision
 
     def run(
         self, request: Any, contract: OutputContract | None = None
@@ -142,7 +155,15 @@ class LookReview(Capability):
         ctx = self.context_builder.build(
             self._retrieval_query(perception, occasion), n_rag=5
         )
-        messages = self._build_messages(perception, occasion, ctx, contract)
+        image_b64: str | None = None
+        if self.vision:
+            try:
+                from fg.llm.base import encode_image
+
+                image_b64 = encode_image(image)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not encode image for VLM (%s).", exc)
+        messages = self._build_messages(perception, occasion, ctx, contract, image_b64)
         text = self.llm.chat(messages, max_tokens=900)
 
         source_set = {h.get("title", "") for h in perception.similar if h.get("title")} | {
@@ -201,9 +222,16 @@ class LookReview(Capability):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Movement matching failed (%s).", exc)
 
+        associations: list[dict] = []
+        if vec is not None and self.kg_linker is not None:
+            try:
+                associations = self.kg_linker.link(vec, top_k=3)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("KG linking failed (%s).", exc)
+
         return Perception(
-            garments=garments, similar=similar,
-            aesthetic_score=score, movements=movements,
+            garments=garments, similar=similar, aesthetic_score=score,
+            movements=movements, associations=associations,
         )
 
     @staticmethod
@@ -223,14 +251,31 @@ class LookReview(Capability):
         occasion: str,
         ctx: FusionContext,
         contract: OutputContract,
+        image_b64: str | None = None,
     ) -> list[Message]:
-        """Assembles the chat messages for the review."""
+        """Assembles the chat messages for the review.
+
+        If *image_b64* is provided (vision mode), it is attached to the user
+        message and the model is told to describe what it actually sees — the
+        structured signals become *support*, not the source of truth.
+        """
+        seeing = image_b64 is not None
+        vision_note = (
+            "You can SEE the outfit photo below — describe the ACTUAL garments, "
+            "colours, and details you observe. The detected labels and catalog "
+            "references are noisy hints and may be WRONG; trust your eyes over "
+            "them. Read the wearer's gender presentation and body from the photo "
+            "and give advice that MATCHES it — do NOT default to womenswear items "
+            "(pumps, dresses, necklaces) for a menswear look or vice versa. "
+            if seeing else
+            "You cannot see the image; work from the detected garments and "
+            "references, and say what you'd want to confirm visually. "
+        )
         system = (
             "You are FashionGraph's Personal Stylist — a warm, sharp-eyed stylist "
             "with real taste, who reviews an outfit honestly and constructively. "
-            "Read the detected garments, the similar catalog references, and the "
-            "aesthetic score as evidence. Be encouraging but specific; never "
-            "body-shame. " + STYLING_RUBRIC + " " + contract.style_directive()
+            + vision_note + "Be encouraging but specific; never body-shame. "
+            + STYLING_RUBRIC + " " + contract.style_directive()
             + " " + GROUNDING_DISCIPLINE
         )
         occasion_line = f"Occasion / context: {occasion}\n" if occasion else ""
@@ -239,6 +284,16 @@ class LookReview(Capability):
             f"literal): {perception.movements_text()}. Use these as inspiration to "
             f"describe the look's design language — don't force them.\n"
             if perception.movements else ""
+        )
+        association_block = (
+            "\n## Design-language associations (knowledge-graph linked — "
+            "associative, NOT attribution)\n"
+            f"{perception.associations_text()}\n"
+            "These are designers/aesthetics whose design language the look "
+            "resembles, with their lineage from the graph. Speak of *resemblance* "
+            "and *lineage* ('reads like…', 'in the language of…', 'traces to…') — "
+            "never claim the outfit IS by them.\n"
+            if perception.associations else ""
         )
         score_line = (
             f"Aesthetic model score (learned from human preference judgments): "
@@ -249,21 +304,29 @@ class LookReview(Capability):
         user = (
             f"## The look\n"
             f"Detected garments: {perception.garments_text()}\n"
-            f"{score_line}{movement_line}{occasion_line}\n"
-            f"## Visually similar catalog pieces\n{perception.similar_text()}\n\n"
-            f"## Styling knowledge (for grounding)\n"
+            f"{score_line}{movement_line}{occasion_line}"
+            f"{association_block}\n"
+            # With vision on, the model reads the real outfit; the (womenswear-
+            # skewed) catalog matches only mislead, so we omit them.
+            + ("" if seeing else
+               f"## Visually similar catalog pieces\n{perception.similar_text()}\n\n")
+            + f"## Styling knowledge (for grounding)\n"
             f"{ctx.knowledge_block() or '(none retrieved)'}\n\n"
             "## Task\nReview this outfit. Produce these sections:\n"
             "1. **Silhouette & proportion** — how the shapes read together.\n"
             "2. **Colour & palette** — what the palette is doing and whether it works.\n"
             "3. **Occasion fit** — is it right for the context (if given)?\n"
-            "4. **What's working** — the strongest elements.\n"
-            "5. **Styling moves** — 3 concrete, specific changes or additions to "
+            "4. **Design lineage** — if associations are given, whose design language "
+            "the look resembles and the aesthetic lineage it traces to (resemblance, "
+            "not attribution). Omit if no associations.\n"
+            "5. **What's working** — the strongest elements.\n"
+            "6. **Styling moves** — 3 concrete, specific changes or additions to "
             "elevate the look.\n"
             "If garments weren't detected, review from the references and any "
             "occasion given, and say what you'd want to see."
         )
-        return [Message("system", system), Message("user", user)]
+        user_msg = Message("user", user, images=[image_b64] if image_b64 else [])
+        return [Message("system", system), user_msg]
 
     # ---- io -----------------------------------------------------------
 

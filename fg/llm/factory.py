@@ -12,12 +12,14 @@ from fg.config import settings
 from fg.llm.base import LLM, LLMError
 
 
-def get_llm(backend: str | None = None, **kwargs) -> LLM:
+def get_llm(backend: str | None = None, vision: bool = False, **kwargs) -> LLM:
     """Instantiates an :class:`~fg.llm.base.LLM` for the given backend.
 
     Args:
         backend: ``"ollama"``, ``"openai"``, or ``"gemini"``. Defaults to
             ``settings.llm_backend``.
+        vision: If ``True``, select an image-capable model (Ollama vision model;
+            OpenAI is already multimodal).
         **kwargs: Passed through to the backend constructor (e.g. ``model``).
 
     Returns:
@@ -31,6 +33,8 @@ def get_llm(backend: str | None = None, **kwargs) -> LLM:
     if name == "ollama":
         from fg.llm.ollama_backend import OllamaLLM
 
+        if vision and "model" not in kwargs:
+            kwargs["model"] = settings.ollama_vision_model
         return OllamaLLM(**kwargs)
     if name in {"openai", "api"}:
         from fg.llm.api_backend import OpenAILLM

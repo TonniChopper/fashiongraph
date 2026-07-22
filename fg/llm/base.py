@@ -9,27 +9,55 @@ and let each backend apply its own correct template.
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass
-from typing import Literal
+import base64
+import io
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Literal
 
 Role = Literal["system", "user", "assistant"]
 
 
+def encode_image(image: Any) -> str:
+    """Encodes an image to base64 (for multimodal messages).
+
+    Args:
+        image: A file path, raw bytes, or a PIL image.
+
+    Returns:
+        Base64-encoded JPEG string (no data-URI prefix).
+    """
+    if isinstance(image, (str, Path)):
+        data = Path(image).read_bytes()
+    elif isinstance(image, (bytes, bytearray)):
+        data = bytes(image)
+    else:  # assume PIL image
+        buf = io.BytesIO()
+        image.convert("RGB").save(buf, format="JPEG")
+        data = buf.getvalue()
+    return base64.b64encode(data).decode("ascii")
+
+
 @dataclass
 class Message:
-    """A single chat message.
+    """A single chat message, optionally multimodal.
 
     Attributes:
         role: One of ``"system"``, ``"user"``, ``"assistant"``.
         content: The message text.
+        images: Base64-encoded images attached to this message (for VLMs).
     """
 
     role: Role
     content: str
+    images: list[str] = field(default_factory=list)
 
-    def as_dict(self) -> dict[str, str]:
-        """Returns the OpenAI/Ollama-style ``{"role", "content"}`` dict."""
-        return {"role": self.role, "content": self.content}
+    def as_dict(self) -> dict[str, Any]:
+        """Returns the Ollama-style message dict (includes ``images`` if any)."""
+        d: dict[str, Any] = {"role": self.role, "content": self.content}
+        if self.images:
+            d["images"] = self.images
+        return d
 
 
 class LLM(abc.ABC):

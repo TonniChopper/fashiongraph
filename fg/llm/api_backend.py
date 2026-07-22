@@ -72,7 +72,7 @@ class OpenAILLM(LLM):
         try:
             resp = self._client.chat.completions.create(
                 model=self.model,
-                messages=[m.as_dict() for m in messages],
+                messages=[self._to_openai(m) for m in messages],
                 temperature=(
                     temperature
                     if temperature is not None
@@ -89,3 +89,16 @@ class OpenAILLM(LLM):
             raise LLMError(f"OpenAI request failed: {exc}") from exc
 
         return resp.choices[0].message.content or ""
+
+    @staticmethod
+    def _to_openai(message: Message) -> dict:
+        """Converts a Message to OpenAI format (multimodal if it has images)."""
+        if not message.images:
+            return message.as_dict()
+        content: list[dict] = [{"type": "text", "text": message.content}]
+        for b64 in message.images:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            })
+        return {"role": message.role, "content": content}

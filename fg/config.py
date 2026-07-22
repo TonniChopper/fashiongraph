@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     llm_backend: Literal["ollama", "openai", "gemini"] = "ollama"
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b-instruct"
+    #: Vision-language model for image tasks (look review). Qwen2.5-VL 7B is the
+    #: 24GB sweet spot; llama3.2-vision is the safe fallback.
+    ollama_vision_model: str = "qwen2.5vl:7b"
     openai_model: str = "gpt-4o-mini"
     gemini_model: str = "gemini-1.5-flash"
     llm_temperature: float = 0.7

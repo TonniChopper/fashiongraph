@@ -171,10 +171,19 @@ def _cmd_bootstrap(answers_path, out, backend, depth, fmt) -> None:
 
 
 def _build_look_review(backend: str | None):
-    """Constructs a LookReview with whatever vision components are available."""
-    from fg.capabilities.personal_stylist.look_review import LookReview
+    """Constructs a LookReview with whatever vision components are available.
 
-    llm, ctx = _build_llm_and_context(backend)
+    Uses a vision-language model so the stylist actually sees the photo.
+    """
+    from fg.capabilities.personal_stylist.look_review import LookReview
+    from fg.llm import get_llm
+
+    _, ctx = _build_llm_and_context(backend)
+    try:
+        llm = get_llm(backend, vision=True)   # VLM: the stylist sees the image
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: vision LLM unavailable, falling back to text: {exc})")
+        llm = get_llm(backend)
     embedder = segmenter = index = None
     try:
         from fg.vision.embedder import FashionEmbedder
@@ -209,9 +218,22 @@ def _build_look_review(backend: str | None):
             matcher = MovementMatcher(embedder)
         except Exception as exc:  # noqa: BLE001
             print(f"(note: movement matcher unavailable: {exc})")
+    linker = None
+    if embedder is not None:
+        try:
+            from pathlib import Path as _P
+
+            from fg.kg.store import KnowledgeGraph, _default_db_path
+            from fg.vision.kg_linker import KGEntityLinker
+
+            if _P(_default_db_path()).exists():
+                linker = KGEntityLinker(embedder, KnowledgeGraph())
+        except Exception as exc:  # noqa: BLE001
+            print(f"(note: KG linker unavailable: {exc})")
     return LookReview(
         llm, embedder=embedder, segmenter=segmenter, visual_index=index,
-        aesthetic_scorer=scorer, movement_matcher=matcher, context_builder=ctx,
+        aesthetic_scorer=scorer, movement_matcher=matcher, kg_linker=linker,
+        context_builder=ctx, vision=True,
     )
 
 

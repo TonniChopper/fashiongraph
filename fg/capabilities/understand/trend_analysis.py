@@ -87,7 +87,7 @@ class TrendAnalyzer(Capability):
             "fashion the way an editor and a strategist would. Distinguish signal "
             "from hype. " + contract.style_directive() + " " + GROUNDING_DISCIPLINE
         )
-        knowledge = ctx.rag_text() or "(no external context retrieved)"
+        knowledge = ctx.knowledge_block() or "(no external context retrieved)"
         user = (
             f"## Topic\n{topic}\n\n"
             f"## Fashion knowledge (for grounding)\n{knowledge}\n\n"

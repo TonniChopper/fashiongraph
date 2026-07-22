@@ -252,7 +252,7 @@ class LookReview(Capability):
             f"{score_line}{movement_line}{occasion_line}\n"
             f"## Visually similar catalog pieces\n{perception.similar_text()}\n\n"
             f"## Styling knowledge (for grounding)\n"
-            f"{ctx.rag_text() or '(none retrieved)'}\n\n"
+            f"{ctx.knowledge_block() or '(none retrieved)'}\n\n"
             "## Task\nReview this outfit. Produce these sections:\n"
             "1. **Silhouette & proportion** — how the shapes read together.\n"
             "2. **Colour & palette** — what the palette is doing and whether it works.\n"

@@ -155,7 +155,7 @@ class BrandBootstrapper(Capability):
             f"- {q.prompt} → {answers.get(q.id, '(not provided)')}"
             for q in QUESTIONS
         )
-        knowledge = ctx.rag_text() or "(no external context retrieved)"
+        knowledge = ctx.knowledge_block() or "(no external context retrieved)"
 
         user = (
             f"## Founder's answers\n{answers_block}\n\n"

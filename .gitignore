@@ -32,3 +32,4 @@ chroma_db/
 # Experiment tracking
 wandb/
 data/chroma/chroma.sqlite3
+THESIS_RELATED_WORK.md

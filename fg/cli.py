@@ -72,7 +72,7 @@ def _cmd_data_smoke(query: str, n: int) -> None:
 
 
 def _build_llm_and_context(backend: str | None):
-    """Builds the LLM and a (RAG-grounded, if possible) context builder once."""
+    """Builds the LLM and a (RAG + KG grounded, if possible) context builder."""
     from fg.brain.context_builder import ContextBuilder
     from fg.llm import get_llm
 
@@ -84,7 +84,17 @@ def _build_llm_and_context(backend: str | None):
         retriever = FashionRetriever()
     except Exception as exc:  # noqa: BLE001
         print(f"(note: running ungrounded — retriever unavailable: {exc})")
-    return llm, ContextBuilder(retriever)
+    kg = None
+    try:
+        from pathlib import Path as _P
+
+        from fg.kg.store import KnowledgeGraph, _default_db_path
+
+        if _P(_default_db_path()).exists():
+            kg = KnowledgeGraph()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: KG unavailable: {exc})")
+    return llm, ContextBuilder(retriever, kg=kg)
 
 
 def _build_bootstrapper(backend: str | None):
@@ -238,6 +248,102 @@ def _cmd_vision_build(limit) -> None:
     print(f"Saved visual index → {path}")
 
 
+def _cmd_kg_build(source, limit, backend) -> None:
+    """Builds the knowledge graph from a corpus source."""
+    from fg.kg.build import build_kg
+    from fg.llm import get_llm
+
+    llm = get_llm(backend) if backend else get_llm()
+    stats = build_kg(llm, source=source, limit=limit)
+    print("\nKG build summary:")
+    for k, v in stats.as_dict().items():
+        print(f"  {k}: {v}")
+
+
+def _cmd_kg_query(entity) -> None:
+    """Prints the graph facts connected to an entity."""
+    from fg.kg.store import KnowledgeGraph
+
+    kg = KnowledgeGraph()
+    facts = kg.facts_as_text(entity, limit=50)
+    if not facts:
+        print(f"No facts for {entity!r}. Is the KG built? Try `fgraph kg stats`.")
+        return
+    print(f"\nFacts connected to {entity!r}:\n")
+    for f in facts:
+        print(f"  • {f}")
+
+
+def _cmd_kg_stats() -> None:
+    """Prints KG summary statistics."""
+    from fg.kg.store import KnowledgeGraph
+
+    s = KnowledgeGraph().stats()
+    print(f"\nKnowledge graph: {s['triples']} triples, {s['entities']} entities")
+    print("Relations:")
+    for rel, c in s["relations"].items():
+        print(f"  {rel:20s} {c}")
+
+
+def _cmd_kg_path(src, dst, hops) -> None:
+    """Finds relationship paths between two entities (multi-hop reasoning)."""
+    from fg.kg.reasoning import GraphReasoner, format_path
+    from fg.kg.store import KnowledgeGraph
+
+    reasoner = GraphReasoner(KnowledgeGraph())
+    paths = reasoner.paths(src, dst, max_hops=hops)
+    if not paths:
+        print(f"No path (≤{hops} hops) between {src!r} and {dst!r}.")
+        return
+    print(f"\nPaths from {src!r} to {dst!r}:\n")
+    for p in paths[:10]:
+        print(f"  {format_path(p)}")
+
+
+def _cmd_kg_who(relation, obj) -> None:
+    """Answers a one-hop relational filter: who <relation> <object>."""
+    from fg.kg.reasoning import GraphReasoner
+    from fg.kg.store import KnowledgeGraph
+
+    subs = GraphReasoner(KnowledgeGraph()).subjects_with(relation, obj)
+    if not subs:
+        print(f"Nothing matches {relation} → {obj!r}.")
+        return
+    print(f"\nEntities where {relation.replace('_', ' ')} → {obj!r}:\n")
+    for s in subs:
+        print(f"  • {s}")
+
+
+def _cmd_kg_eval(n, backend, judge) -> None:
+    """Runs the KG-vs-flat-RAG lift experiment."""
+    from fg.kg.evaluate import evaluate_lift
+    from fg.kg.store import KnowledgeGraph
+
+    llm, ctx = _build_llm_and_context(backend)
+    retriever = getattr(ctx, "retriever", None)
+    extra = " + LLM judge" if judge else ""
+    print(f"\nRunning KG-vs-RAG lift eval{extra} (calls the LLM per entity)…\n")
+    results, summary = evaluate_lift(
+        llm, retriever, KnowledgeGraph(), n_entities=n, judge=judge
+    )
+    head = f"{'entity':22s} {'gold':>4s} {'KG':>6s} {'RAG':>6s}"
+    if judge:
+        head += "  judge"
+    print(head)
+    for r in results:
+        line = f"{r.entity[:22]:22s} {r.n_gold:>4d} {r.coverage_kg:>6.2f} {r.coverage_rag:>6.2f}"
+        if judge:
+            line += f"  {r.judge}"
+        print(line)
+    print(f"\nmean fact-coverage — KG: {summary['mean_coverage_kg']:.3f}  "
+          f"RAG: {summary['mean_coverage_rag']:.3f}  "
+          f"LIFT: {summary['lift']:+.3f}")
+    if judge:
+        print(f"LLM judge — KG wins: {summary['judge_kg_wins']}  "
+              f"RAG wins: {summary['judge_rag_wins']}  "
+              f"ties: {summary['judge_ties']}")
+
+
 def _cmd_route(query, backend) -> None:
     """Demonstrates the router: classify + dispatch across capabilities."""
     router = _build_router(backend)
@@ -297,6 +403,26 @@ def main() -> None:
     vbuild = vision.add_parser("build", help="Build the product visual index")
     vbuild.add_argument("--limit", type=int, default=None, help="Cap images (quick build)")
 
+    kg = sub.add_parser("kg", help="Knowledge graph tools").add_subparsers(dest="kg_command")
+    kgb = kg.add_parser("build", help="Extract triples from the corpus into the KG")
+    kgb.add_argument("--source", default="wikipedia", help="Ingest source (default: wikipedia)")
+    kgb.add_argument("--limit", type=int, default=15, help="Docs to process (narrow slice)")
+    kgb.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
+    kgq = kg.add_parser("query", help="Show facts connected to an entity")
+    kgq.add_argument("entity", help="Entity name, e.g. 'Prada'")
+    kg.add_parser("stats", help="KG summary statistics")
+    kge = kg.add_parser("eval", help="KG-vs-flat-RAG lift experiment")
+    kge.add_argument("-n", type=int, default=8, help="Entities to test")
+    kge.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
+    kge.add_argument("--judge", action="store_true", help="Add LLM-as-judge quality comparison")
+    kgp = kg.add_parser("path", help="Find relationship paths between two entities")
+    kgp.add_argument("src", help="Start entity")
+    kgp.add_argument("dst", help="Target entity")
+    kgp.add_argument("--hops", type=int, default=3, help="Max path length")
+    kgw = kg.add_parser("who", help="One-hop filter: who <relation> <object>")
+    kgw.add_argument("relation", help="Relation, e.g. based_in")
+    kgw.add_argument("object", help="Object entity, e.g. Milan")
+
     route_p = sub.add_parser("route", help="Classify + dispatch a request")
     route_p.add_argument("query", help="Natural-language request")
     route_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
@@ -314,6 +440,21 @@ def main() -> None:
             _cmd_vision_build(args.limit)
         else:
             parser.parse_args(["vision", "--help"])
+    elif args.command == "kg":
+        if args.kg_command == "build":
+            _cmd_kg_build(args.source, args.limit, args.backend)
+        elif args.kg_command == "query":
+            _cmd_kg_query(args.entity)
+        elif args.kg_command == "stats":
+            _cmd_kg_stats()
+        elif args.kg_command == "eval":
+            _cmd_kg_eval(args.n, args.backend, args.judge)
+        elif args.kg_command == "path":
+            _cmd_kg_path(args.src, args.dst, args.hops)
+        elif args.kg_command == "who":
+            _cmd_kg_who(args.relation, args.object)
+        else:
+            parser.parse_args(["kg", "--help"])
     elif args.command == "route":
         _cmd_route(args.query, args.backend)
     elif args.command == "data":

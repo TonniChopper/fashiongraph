@@ -200,6 +200,30 @@ references*, and validate before trusting.
 
 ---
 
+---
+
+# Fabric-texture datasets (visual mirror nodes for materials)
+
+Goal: give each KG ``material`` node a **visual prototype** (mean texture
+embedding) so a swatch/garment-crop can be matched to a fabric, and the material
+node becomes multimodal (the "mirror node" from MMKG work). Infra:
+`fg/vision/fabric_texture.py` (`build_texture_index`, `FabricTextureLinker`),
+`fgraph vision build-textures <dir>` — works on any ``<fabric>/*.jpg`` layout.
+
+Recommended source:
+- **text2fabric** ⭐ — 3,000 fabric materials **paired with text descriptions**.
+  Best fit (multimodal, matches SigLIP). https://valentin.deschaintre.fr/text2fabric_browser_v1.html
+- **DTD** (47 texture classes) / **Ten Fabrics Dataset** — simple folder-per-class,
+  quickest to load. DTD: robots.ox.ac.uk/~vgg/data/dtd
+- **The Fabrics Dataset (iBUG)** — ~2k in-the-field garment fabric samples (research-only).
+
+Skip: TILDA / Textile-AD / FabricNET / TFD-defects — these are *defect/QC* and
+*microscopic* datasets; wrong texture scale for fashion aesthetics.
+
+Honest caveat: fabric ID from a full-outfit photo is unreliable (texture not
+visible at that scale) — use close-up swatches or segmenter garment crops.
+Organize any chosen set as ``root/<fabric>/*.jpg`` and run `vision build-textures`.
+
 ## Licensing note
 Kaggle sets are free but each has its own license/terms (H&M requires competition
 rules acceptance); Surrey is academic (cite Gaur & Mikolajczyk, ICPR 2014).

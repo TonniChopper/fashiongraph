@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     visual_index_name: str = "products_fashionsiglip.npz"
     #: Filename of the runway visual index (designer/collection-labeled looks).
     runway_index_name: str = "runway_fashionsiglip.npz"
+    #: Filename of the fabric-texture visual index (fabric-labeled swatches).
+    texture_index_name: str = "fabric_textures.npz"
     #: Text embedder for RAG / metadata re-ranking.
     text_embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     #: Device for text embedding: "auto" (mps→cuda→cpu), or force "mps"/"cpu".

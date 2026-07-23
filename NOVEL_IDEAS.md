@@ -134,6 +134,29 @@ Suggested stack (from the doc) ≈ ours: CLIP/fashion-ViT (Marqo ✓), LLM extra
 (✓), graph DB with **mirror nodes** (we use SQLite + a parallel vector index, not
 Neo4j), contrastive/cross-attention alignment (future #5), MMGraphRAG layer (✓).
 
+## Deferred — fabric *visual* texture mirror nodes
+
+**Status: parked (dataset too large for now).** The text-level fabric layer is
+DONE (`fg/kg/fabrics.py` — 29 fabrics × properties/texture/season, in the KG).
+The *visual* texture grounding — a mean texture embedding per fabric (mirror
+node) so a swatch/garment-crop → fabric — is **built but unfed**:
+`fg/vision/fabric_texture.py` (`build_texture_index`, `FabricTextureLinker` with
+`identify()` + `centroids()`), `fgraph vision build-textures <dir>`, dataset-agnostic
+(folder-per-fabric).
+
+To resume later:
+- **text2fabric** (valentin.deschaintre.fr/text2fabric) is the target — 3k
+  materials / 45k images + text descriptions, colour, multimodal. But it's
+  multi-GB and organized as (image, free-text description) pairs, NOT
+  `<fabric>/*.jpg`. Needs a small **adapter** that maps each description →
+  a fabric-ontology name, then feeds `build_texture_index`.
+- **DTD** (folder-per-class ZIP) is the zero-friction smoke-test (generic
+  textures, not named fabrics) — works with `vision build-textures` as-is.
+- Rejected: TILDA (greyscale, defect-detection, 1996 — wrong domain).
+
+Honest caveat when resumed: fabric ID needs close-up crops (segmenter garment
+crops), not full-outfit photos.
+
 ## Open decisions
 - Prototype (centroid) vs k-NN vs both for look→node — start with **both**
   (centroid coarse, k-NN fine), measure.

@@ -173,79 +173,39 @@ def _cmd_bootstrap(answers_path, out, backend, depth, fmt) -> None:
 def _build_look_review(backend: str | None):
     """Constructs a LookReview with whatever vision components are available.
 
-    Uses a vision-language model so the stylist actually sees the photo.
+    Uses a vision-language model so the stylist actually sees the photo. The
+    perception components are assembled by ``build_perception_stack`` (one
+    tested composition root); the KG is loaded once and shared with the context
+    builder.
     """
+    from fg.brain.context_builder import ContextBuilder
     from fg.capabilities.personal_stylist.look_review import LookReview
     from fg.llm import get_llm
+    from fg.vision.perception import build_perception_stack
 
-    _, ctx = _build_llm_and_context(backend)
     try:
         llm = get_llm(backend, vision=True)   # VLM: the stylist sees the image
     except Exception as exc:  # noqa: BLE001
         print(f"(note: vision LLM unavailable, falling back to text: {exc})")
         llm = get_llm(backend)
-    embedder = segmenter = index = None
+
+    stack = build_perception_stack(on_note=lambda m: print(f"(note: {m})"))
+
+    retriever = None
     try:
-        from fg.vision.embedder import FashionEmbedder
+        from fg.rag.retriever import FashionRetriever
 
-        embedder = FashionEmbedder()
+        retriever = FashionRetriever()
     except Exception as exc:  # noqa: BLE001
-        print(f"(note: fashion embedder unavailable — no visual matching: {exc})")
-    try:
-        from fg.vision.index import VisualIndex
+        print(f"(note: retriever unavailable: {exc})")
 
-        index = VisualIndex.load()
-    except Exception as exc:  # noqa: BLE001
-        print(f"(note: visual index unavailable — run `fgraph vision build`: {exc})")
-    try:
-        from fg.vision.segmentation import GarmentSegmenter
-
-        segmenter = GarmentSegmenter()
-    except Exception as exc:  # noqa: BLE001
-        print(f"(note: segmenter unavailable — no garment detection: {exc})")
-    scorer = None
-    try:
-        from fg.vision.aesthetics import AestheticScorer
-
-        scorer = AestheticScorer.load()
-    except Exception as exc:  # noqa: BLE001
-        print(f"(note: aesthetic scorer unavailable — train it for taste scoring: {exc})")
-    matcher = None
-    if embedder is not None:
-        try:
-            from fg.vision.aesthetic_movements import MovementMatcher
-
-            matcher = MovementMatcher(embedder)
-        except Exception as exc:  # noqa: BLE001
-            print(f"(note: movement matcher unavailable: {exc})")
-    from pathlib import Path as _P
-
-    kg = None
-    linker = None
-    try:
-        from fg.kg.store import KnowledgeGraph, _default_db_path
-
-        if _P(_default_db_path()).exists():
-            kg = KnowledgeGraph()
-            if embedder is not None:
-                from fg.vision.kg_linker import KGEntityLinker
-
-                linker = KGEntityLinker(embedder, kg)
-    except Exception as exc:  # noqa: BLE001
-        print(f"(note: KG unavailable: {exc})")
-    runway = None
-    if embedder is not None:
-        try:
-            from fg.vision.runway import RunwayLinker, _default_runway_index_path
-
-            if _P(_default_runway_index_path()).exists():
-                runway = RunwayLinker()
-        except Exception as exc:  # noqa: BLE001
-            print(f"(note: runway linker unavailable — run `fgraph vision build-runway`: {exc})")
+    ctx = ContextBuilder(retriever, kg=stack.kg)
     return LookReview(
-        llm, embedder=embedder, segmenter=segmenter, visual_index=index,
-        aesthetic_scorer=scorer, movement_matcher=matcher, kg_linker=linker,
-        runway_linker=runway, kg=kg, context_builder=ctx, vision=True,
+        llm, embedder=stack.embedder, segmenter=stack.segmenter,
+        visual_index=stack.visual_index, aesthetic_scorer=stack.aesthetic_scorer,
+        movement_matcher=stack.movement_matcher, kg_linker=stack.kg_linker,
+        runway_linker=stack.runway_linker, kg=stack.kg,
+        context_builder=ctx, vision=True,
     )
 
 
@@ -294,6 +254,34 @@ def _cmd_vision_build_runway(limit) -> None:
     print(f"Saved runway index → {path}")
 
 
+def _cmd_vision_extract_runway(per_collection, limit, backend) -> None:
+    """Runs the VLM over runway looks → captions + image-grounded KG edges."""
+    from fg.kg.store import KnowledgeGraph
+    from fg.llm import get_llm
+    from fg.vision.vlm_extract import extract_runway_kg
+
+    llm = get_llm(backend, vision=True) if backend else get_llm(vision=True)
+    kg = KnowledgeGraph()
+    print("Running VLM over sampled runway looks (image-grounded extraction)…")
+    stats = extract_runway_kg(llm, kg, per_collection=per_collection, limit=limit,
+                              on_note=lambda m: print(f"  {m}"))
+    print("\nVLM extraction summary:")
+    for k, v in stats.as_dict().items():
+        print(f"  {k}: {v}")
+
+
+def _cmd_vision_build_textures(directory, limit) -> None:
+    """Builds the fabric-texture visual index from a folder-per-fabric dataset."""
+    from fg.vision.embedder import FashionEmbedder
+    from fg.vision.fabric_texture import build_texture_index
+
+    print("Loading fashion embedder (Marqo-FashionSigLIP)…")
+    embedder = FashionEmbedder()
+    print(f"Building fabric-texture index from {directory}…")
+    path = build_texture_index(embedder, directory, limit=limit)
+    print(f"Saved fabric-texture index → {path}")
+
+
 def _cmd_vision_eval_runway(holdout, neighbors) -> None:
     """Runs held-out designer top-k accuracy on the runway index (no model)."""
     from fg.vision.index import VisualIndex
@@ -335,6 +323,15 @@ def _cmd_kg_query(entity) -> None:
     print(f"\nFacts connected to {entity!r}:\n")
     for f in facts:
         print(f"  • {f}")
+
+
+def _cmd_kg_add_fabrics() -> None:
+    """Loads the curated fabric ontology into the KG."""
+    from fg.kg.fabrics import FABRICS, add_fabrics_to_kg
+    from fg.kg.store import KnowledgeGraph
+
+    added = add_fabrics_to_kg(KnowledgeGraph())
+    print(f"Added {added} fabric property/texture/season edges for {len(FABRICS)} fabrics.")
 
 
 def _cmd_kg_stats() -> None:
@@ -492,6 +489,13 @@ def main() -> None:
     veval = vision.add_parser("eval-runway", help="Designer top-k grounding accuracy")
     veval.add_argument("--holdout", type=float, default=0.2, help="Held-out fraction")
     veval.add_argument("--neighbors", type=int, default=10, help="kNN neighbours to vote")
+    vtex = vision.add_parser("build-textures", help="Build fabric-texture index (folder-per-fabric)")
+    vtex.add_argument("directory", help="Root dir laid out <fabric>/*.jpg")
+    vtex.add_argument("--limit", type=int, default=None, help="Cap images")
+    vext = vision.add_parser("extract-runway", help="VLM → runway captions + KG edges")
+    vext.add_argument("--per-collection", type=int, default=3, help="Looks sampled per collection")
+    vext.add_argument("--limit", type=int, default=None, help="Cap total looks")
+    vext.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
 
     kg = sub.add_parser("kg", help="Knowledge graph tools").add_subparsers(dest="kg_command")
     kgb = kg.add_parser("build", help="Extract triples from the corpus into the KG")
@@ -501,6 +505,7 @@ def main() -> None:
     kgq = kg.add_parser("query", help="Show facts connected to an entity")
     kgq.add_argument("entity", help="Entity name, e.g. 'Prada'")
     kg.add_parser("stats", help="KG summary statistics")
+    kg.add_parser("add-fabrics", help="Add curated fabric properties to the KG")
     kge = kg.add_parser("eval", help="KG-vs-flat-RAG lift experiment")
     kge.add_argument("-n", type=int, default=8, help="Entities to test")
     kge.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
@@ -535,8 +540,12 @@ def main() -> None:
             _cmd_vision_build(args.limit)
         elif args.vision_command == "build-runway":
             _cmd_vision_build_runway(args.limit)
+        elif args.vision_command == "build-textures":
+            _cmd_vision_build_textures(args.directory, args.limit)
         elif args.vision_command == "eval-runway":
             _cmd_vision_eval_runway(args.holdout, args.neighbors)
+        elif args.vision_command == "extract-runway":
+            _cmd_vision_extract_runway(args.per_collection, args.limit, args.backend)
         else:
             parser.parse_args(["vision", "--help"])
     elif args.command == "kg":
@@ -546,6 +555,8 @@ def main() -> None:
             _cmd_kg_query(args.entity)
         elif args.kg_command == "stats":
             _cmd_kg_stats()
+        elif args.kg_command == "add-fabrics":
+            _cmd_kg_add_fabrics()
         elif args.kg_command == "eval":
             _cmd_kg_eval(args.n, args.backend, args.judge)
         elif args.kg_command == "path":

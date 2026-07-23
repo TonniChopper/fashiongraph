@@ -18,6 +18,7 @@ _PUNCT_RE = re.compile(r"[^a-z0-9 ]+")
 ENTITY_TYPES: frozenset[str] = frozenset({
     "brand", "designer", "collection", "garment", "silhouette",
     "material", "colour", "era", "trend", "aesthetic", "city",
+    "property", "season", "texture",
 })
 
 #: Allowed relations (subject_type hints in comments).
@@ -34,6 +35,9 @@ RELATION_TYPES: frozenset[str] = frozenset({
     "based_in",            # brand -> city
     "successor_of",        # designer -> designer
     "collaborated_with",   # brand/designer -> brand/designer
+    "has_property",        # material -> property (lightweight, breathable, …)
+    "suits_season",        # material -> season
+    "has_texture",         # material -> texture (smooth, plush, crisp, …)
 })
 
 
@@ -76,6 +80,11 @@ RELATION_SYNONYMS: dict[str, str] = {
     # successor_of
     "succeeded": "successor_of", "replaced": "successor_of",
     "predecessor_of": "successor_of",
+    # fabric relations
+    "property": "has_property", "characterized_by": "has_property",
+    "feels": "has_texture", "texture": "has_texture", "feels_like": "has_texture",
+    "suited_for": "suits_season", "good_for_season": "suits_season",
+    "worn_in": "suits_season", "season": "suits_season",
 }
 
 
@@ -187,9 +196,9 @@ def is_plausible_entity(name: str) -> bool:
     words = key.split()
     if len(words) > 6:                       # phrase, not an entity
         return False
-    # A bare decade/year IS a valid era ("1990s"); reject only when a year is
-    # embedded in a multi-word phrase ("ysl fall 1960 dior collection").
-    if len(words) > 1 and any(_YEAR_TOKEN_RE.match(w) for w in words):
+    # A bare decade ("1990s") and a season ("Fall 2026") are valid; reject a year
+    # only inside a longer phrase ("ysl fall 1960 dior collection").
+    if len(words) > 2 and any(_YEAR_TOKEN_RE.match(w) for w in words):
         return False
     # Sentence-fragment markers.
     if any(m in f" {key} " for m in (" from ", " and his ", " including ", " where ")):

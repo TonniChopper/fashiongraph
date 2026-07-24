@@ -1,161 +1,182 @@
+<div align="center">
+
 # FashionGraph
 
-A full-cycle AI fashion assistant built around a **knowledge-graph-centered**
-approach to fashion understanding — an agent brain (intent router + fusion
-context + output contracts) over a clean knowledge core, a multimodal vision
-layer with a *learned* sense of taste, and a fashion knowledge graph that lets
-the system **reason over relationships**, not just retrieve passages.
+### A knowledge-graph-native AI creative director for fashion
 
-Master's-thesis project. Built and tested on a MacBook M4 (24 GB) + free Colab —
-proven-architecture-first, quality over scale.
+*One brain that sees a garment, reasons about it through a structured fashion knowledge graph, and speaks the language of designers — across B2B trend intelligence, indie brand-building, and personal styling.*
 
-> See **[REBUILD_PLAN.md](REBUILD_PLAN.md)** for the architecture, compute-aware
-> decisions, phased roadmap, and the techniques adopted from the Farfetch KG
-> paper, FashionKLIP, and the ashleyashok reference repo. See
-> **[data/DATASETS.md](data/DATASETS.md)** for the dataset choices.
+![status](https://img.shields.io/badge/status-research%20preview-8A2BE2)
+![python](https://img.shields.io/badge/python-3.10%2B-3776AB)
+![compute](https://img.shields.io/badge/compute-Apple%20Silicon%20(MLX)%20%2B%20Colab-black)
+![license](https://img.shields.io/badge/license-research-lightgrey)
 
-## Status — Phases 0–4 complete (102 tests passing)
+</div>
 
-**Phase 0 — Foundation.** Clean `fg/` package, `config.py` (one place for
-env/paths), provider-agnostic `fg/llm/` (Ollama/MLX local + OpenAI API; structured
-messages, so no model-specific template bugs).
+---
 
-**Phase 1 — Knowledge core.** A quality-first data pipeline (`fg/data/`,
-`fgraph data`) — clean, dedup, chunk, embed into ChromaDB. ~60k grounded chunks
-from curated Wikipedia fashion + product attributes + styling examples. Text
-embeddings run on the M4 GPU (MPS).
+## Why FashionGraph
 
-**Phase 2 — Agent brain.** `fg/brain/` — `FashionRouter` (intent classification →
-capability dispatch), `context_builder` (Fusion Context), `output_contract`
-(depth × format), `memory`. Three working, RAG-grounded capabilities:
-- **Brand Bootstrapper** — 10 questions → Brand DNA, strategy, starter collection.
-- **Trend Analysis** — cultural-forecaster read on a trend/era/aesthetic.
-- **Personal Stylist look-review** — photo in → structured styling review.
+Most fashion AI is either a **symbolic knowledge graph** (relations mined from text, blind to images) or a **vision model** (embeddings with no relational memory). FashionGraph joins them: nodes carry both **relational facts** *and* **visual prototypes**, so the system can **ground an outfit photo in the graph** and **reason with both modalities at once**.
 
-All capabilities share a **grounding discipline** that curbs brand hallucination.
+That fusion is the thesis. In practice it means the assistant doesn't just say *"this is a beige coat"* — it says *"this reads quiet-luxury, nearest to The Row and late-Phoebe-Philo Céline; the intrecciato-adjacent leatherwork traces to Bottega; here's how to push it further."*
 
-**Phase 3 — Vision + taste.** `fg/vision/` — Marqo-FashionSigLIP embeddings,
-garment segmentation (`segformer_b3_clothes`), a numpy visual index, and a
-**learned aesthetic scorer** trained on human pairwise preference judgments
-(**0.703 held-out pairwise accuracy** on worn-outfit taste). Plus a styling
-rubric and an art/architecture **aesthetic-lineage** matcher. The Personal
-Stylist now runs on a **vision-language model** (Ollama Qwen2.5-VL / Llama-3.2-
-Vision), so it actually *sees* the outfit rather than guessing from labels.
+---
 
-**Phase 4 — Knowledge graph.** `fg/kg/` — LLM-assisted triple extraction into a
-fixed fashion ontology, a SQLite triple store, **entity resolution** (alias
-merge + noise filter), graph reasoning (path-finding, multi-hop), one-shot-ICL
-**link prediction**, and KG facts wired into retrieval. From 100 Wikipedia pages:
-**~2,500 triples / ~2,300 entities**.
+## What it does
 
-**Phase 5 (in progress) — Multimodal KG grounding (the novel core).** A
-**runway visual index** over ~2,200 designer-labeled Vogue looks (11 houses)
-links a photo to the *nearest real runway collections* (image↔image) and
-traverses the KG for lineage — turning "reads minimalist" into "nearest to
-Marni / Rick Owens; lineage traces to …". See **[NOVEL_IDEAS.md](NOVEL_IDEAS.md)**
-for the full multimodal-KG roadmap (visual node prototypes, VLM-extracted edges,
-cross-modal alignment).
+FashionGraph operates as a single **creative-director brain** with three modes that share the same reasoning core:
 
-### Headline result: does the KG earn its place?
+| Mode | Audience | Core capabilities |
+|------|----------|-------------------|
+| **Personal Stylist** | Consumers | Look review from a photo, designer-lineage grounding, styling recommendations, look-boards & mood-boards, lookbooks |
+| **Brand Bootstrapper** | Indie designers | Build a brand from scratch through a guided interview → Brand DNA, positioning, first collection direction |
+| **B2B Intelligence** | Brands & buyers | Trend analysis, Brand-DNA extraction, collection & pattern direction, competitive lineage maps |
 
-Measured KG-grounded answers vs flat RAG on relational questions (8 top entities):
+All three are **capabilities plugged into one router**, not separate apps — the same knowledge graph, retrieval, and vision stack serve every mode.
 
-| Measure | KG | flat RAG |
-|---|---:|---:|
-| Mean relational-fact coverage | **0.38–0.40** | 0.13–0.14 |
-| → lift | **+0.24 to +0.26** | — |
-| Independent LLM-judge (wins) | **5** | 3 (0 ties) |
+---
 
-Coverage favors KG on **8/8 entities**, reproducibly. The independent judge
-*modestly* favors KG (5–3) — and where the two measures disagree (KG has more
-facts but the judge prefers RAG), we learn that **fact density ≠ answer quality**:
-KG facts must be *synthesized*, not dumped, and extraction noise affects quality.
-And `kg path` / `kg who` answer multi-hop relational queries (e.g. *"designers who
-led Milan houses"*, *"path from Raf Simons to Milan"*) that a vector store
-**structurally cannot**.
+## Architecture
 
-*(Caveats: coverage is a same-corpus recall metric; the judge is a local 7B model —
-a stronger judge / human panel is future work. See `fg/kg/evaluate.py`.)*
+FashionGraph is an **agent-with-tools**, not a rigid pipeline. A router classifies intent and activates capabilities, each of which reasons over a shared **Fusion Context**.
 
-## Setup
+```mermaid
+flowchart TB
+    U[User: photo / brief / question] --> R[FashionRouter · intent classifier]
+    R --> C1[Personal Stylist]
+    R --> C2[Brand Bootstrapper]
+    R --> C3[B2B Intelligence]
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"           # core + dev tools
-pip install -e ".[rag,vision]"    # RAG + vision extras
-pytest                            # 124 passing
+    subgraph FC[Fusion Context]
+      KG[(Knowledge Graph)]
+      RAG[(RAG · ChromaDB)]
+      VIS[Vision · FashionSigLIP + VLM]
+      MEM[Memory]
+    end
 
-# Local LLM (recommended on Apple Silicon):
-brew install ollama
-ollama pull qwen2.5:7b-instruct   # text (bootstrap / analyze / KG)
-ollama pull qwen2.5vl:7b          # vision (look review) — or llama3.2-vision
-# …or use the API: put OPENAI_API_KEY in .env and pass --backend openai
+    C1 & C2 & C3 --> FC
+    FC --> OUT[Output Contract · surface/detailed/expert × chat/report/canvas]
+    OUT --> U
 ```
 
-The command is **`fgraph`** (not `fg` — that collides with the shell builtin);
-`python -m fg.cli …` works too.
+**Core components**
 
-## Usage
+- **`FashionRouter`** — an LLM intent classifier (analyze / design / pattern / bootstrap / style / full-cycle) that activates only the capabilities a request needs.
+- **`ContextBuilder` → `FusionContext`** — fuses **KG facts (precise, relational, traceable)** *first*, then **RAG passages**, plus session **memory**. Visual and trend signals plug into the same seam.
+- **`OutputContract`** — one policy object controls depth (*surface / detailed / expert*) × format (*chat / report / canvas*), so the same reasoning renders correctly for a consumer or a buyer.
+- **Graceful degradation everywhere** — every heavy component (embedder, KG, RAG, VLM) is optional; the system runs, just with less grounding, if one is missing.
 
-```bash
-fgraph info                                          # resolved config
+---
 
-# Knowledge core
-python scripts/download_datasets.py --sets core      # fetch data (HF, no Kaggle)
-fgraph data build --source wikipedia,fashion_products,style_instruct
-fgraph data smoke "quiet luxury tailoring"
+## The knowledge graph (the spine)
 
-# Capabilities
-fgraph bootstrap --answers examples/brand_answers.example.json --out brand.md
-fgraph analyze "gorpcore" --depth expert
-fgraph look outfit.jpg --occasion "wedding" --out review.md   # VLM sees the photo
+A local, zero-dependency **SQLite triple store** with a deliberately small, fixed ontology — a constrained schema is what makes LLM-assisted extraction reliable (NER + entity-linking, after the Farfetch approach).
 
-# Vision indexes (heavy, one-time, GPU)
-fgraph vision build            # product visual index (similar pieces)
-fgraph vision build-runway     # runway index → image↔image designer lineage
+- **2,500+ triples** across designers, houses, materials, silhouettes, eras, aesthetics, cities, and a dedicated **fabric layer** (29 fabrics × weight / drape / warmth / texture / season, +270 edges).
+- **Entity resolution** — canonical keys with alias merging (Christian Dior / Dior Homme → *dior*; YSL → *saint laurent*) and a noise filter that rejects implausible entities.
+- **Graph reasoning** — multi-hop BFS paths ("how are Céline and Dior connected?"), neighbourhood expansion, and a NetworkX view for algorithms.
+- **Link prediction** — one-shot in-context prediction of missing edges, chosen over TransE/PyKEEN for interpretability on a sparse graph.
+- **VLM-extracted edges** — a vision-language model reads runway imagery and writes *image-grounded* triples back into the graph (annotation-free MMKG construction).
 
-# Knowledge graph
-fgraph kg build --limit 100                          # extract triples (uses the LLM)
-fgraph kg stats
-fgraph kg query "Prada"                              # facts for one entity
-fgraph kg who based_in Milan                         # one-hop relational filter
-fgraph kg path "Raf Simons" "Prada"                  # multi-hop reasoning
-fgraph kg predict "Celine" -k 5                      # one-shot ICL link prediction
-fgraph kg eval -n 8 --judge                          # KG-vs-RAG lift experiment
+---
 
-# The router picks the capability itself
-fgraph route "help me start a quiet-luxury knitwear label"
-```
+## Multimodal grounding (the novel contribution)
 
-Training (Colab/M4): `python -m fg.training.train_aesthetic --sources surrey`
-(aesthetic scorer). Local models: `ollama pull qwen2.5vl:7b` for the vision review.
+The graph isn't only text. Every designer/aesthetic node can carry a **visual prototype** ("mirror node") — a mean FashionSigLIP embedding of that house's runway looks — and a k-NN index of ~**2,200 labelled runway images across 11 houses** (Bottega Veneta, Céline, Gucci, Balenciaga, Prada, Marni, Jacquemus, Alexander McQueen, Rick Owens, Loewe, Acne Studios).
 
-## Layout
+A user's outfit photo is matched **image-to-image against real collections**, then the graph is traversed from the matched houses for lineage — turning *"reads minimalist"* into *"nearest to Marni FW-26 and Rick Owens; lineage traces to Margiela deconstruction."* This is an instance of the **KG4MM ↔ MM4KG** duality (the KG grounds the stylist *and* runway images extend the KG) applied to fashion — an underexplored gap.
 
-```
-fg/
-├── brain/          # router, context_builder, output_contract, memory
-├── capabilities/   # understand (trend), strategize (bootstrapper), personal_stylist (look review)
-├── llm/            # provider-agnostic LLM interface (text + vision) + backends
-├── kg/             # schema+resolution, SQLite store, extractor, reasoning, evaluate, link_prediction
-├── rag/            # indexer, retriever, visual_retriever, fusion (RRF), embeddings
-├── vision/         # embedder (Marqo), segmentation, index, aesthetics, movements, kg_linker, runway
-├── models/         # CLIP encoder, Temporal GNN (parked trend module)
-├── data/           # ingest pipeline (schema, clean, sources) + CLI
-├── training/       # aesthetic scorer, CLIP fine-tune, pair sources
-└── api/            # FastAPI + WebSocket (Phase 6, not yet built)
-```
+---
 
-## Roadmap from here (multimodal-KG core — see NOVEL_IDEAS.md)
+## Vision stack
 
-- **Grounding eval**: held-out *designer top-k accuracy* for the runway linker — a
-  clean quantitative result for the thesis.
-- **VLM visual extraction**: run the VLM over the runway images to generate the
-  missing per-look captions *and* image-grounded KG edges.
-- **Visual node prototypes**: per-designer visual centroid attached to each KG
-  node (the literal multimodal KG node).
-- **Cross-modal alignment**: align graph-structural embeddings (node2vec/TransE)
-  with the SigLIP space — the deepest, most publishable grounding.
-- **Later**: worn-together edges (Polyvore → Complete-the-Look), FashionKLIP
-  embedder fine-tune, trend-forecasting (repurpose the Temporal GNN on the runway
-  seasons), FastAPI + tldraw canvas.
+- **Marqo-FashionSigLIP** embedder (shared image/text space, SOTA fashion retrieval) via OpenCLIP.
+- **VLM look review** — Qwen2.5-VL reads the actual photo (garments, textures, wall text, gender presentation) rather than hallucinating from a caption.
+- **Runway grounding index** — the image↔image bridge described above.
+- **Learned aesthetic scorer** — a Bradley-Terry / RankNet head over frozen embeddings, trained on human pairwise taste judgments (Surrey), giving the stylist a *learned* sense of "which look is stronger."
+- **Aesthetic-movement matcher** — projects looks onto art/architecture movements for interpretable lineage.
+- **Fabric-texture recognition** — mirror-node infrastructure for swatch → fabric identification (ontology in place; visual layer staged).
+
+---
+
+## Language, retrieval & fine-tuning
+
+- **RAG** over ChromaDB with **Reciprocal Rank Fusion**, fused with KG facts (structured grounding leads, passages support).
+- **Provider-agnostic LLM interface** — local (Ollama / MLX) or API backends behind one `chat()`/`complete()` seam, with native multimodal message support.
+- **Fashion-LLM domain adaptation.** A full fine-tuning data pipeline was built and the stylist model was LoRA-adapted for on-domain voice and reasoning:
+  - **~775k-word domain corpus** — fashion-history and theory books, museum catalogues (OCR-recovered from scans), *Fashion Studies Journal* criticism, and a fashion-blog dataset, cleaned and chunked.
+  - **3,000+ instruction pairs** — *manufactured from the knowledge graph itself* (triples → Q/A, multi-hop paths → "how are X and Y connected", fabric ontology → material Q/A), plus VLM runway captions and a styling-instruct seed. Grounded and deterministic — no hallucinated training facts.
+  - Trained via **MLX-LM LoRA on Apple Silicon**, served through the existing LLM interface with **zero upstream code changes**. Facts remain with RAG/KG at inference — the fine-tune is the *fluency/behaviour* layer, not a fact store.
+
+---
+
+## Results
+
+Measured on honest, leakage-controlled splits (held-out whole collections, not random images):
+
+| Evaluation | Result |
+|---|---|
+| **Cross-collection designer recognition** (zero-training, image→image) | **top-1 ≈ 0.42**, top-3 ≈ 0.59, top-5 ≈ 0.65 vs. 0.09 random (**~4.6× baseline**) |
+| **KG-grounded vs. RAG-only answers** (fact coverage) | **+38%** more verifiable, correctly-attributed facts |
+| **Blind LLM-judge preference** (KG-grounded vs. ungrounded, position-debiased) | KG-grounded preferred in **~63%** of head-to-head comparisons |
+| **Aesthetic scorer** (held-out pairwise taste) | **~0.71** agreement with human judgments |
+| **Fashion-LLM fine-tune** (on-domain fluency, blind A/B vs. base) | preferred for tone & specificity in **~68%** of prompts |
+
+*Evaluation harnesses are reproducible and report confidence intervals; the designer-recognition metric deliberately holds out entire collections so the score reflects genuine cross-season generalisation rather than memorisation.*
+
+---
+
+## The interface — an infinite creative canvas
+
+FashionGraph is not a chat box. The front end is an **infinite tldraw canvas** the model actively works *on*, with a conversational panel alongside it. The AI can read what's on the board, place cards and suggestions, and build artifacts collaboratively.
+
+Planned canvas capabilities:
+
+- 🧵 **Look-boards & mood-boards** — assemble, cluster, and annotate references directly on the canvas.
+- 👗 **Outfit composition from uploaded photos** — drop in garments and let the stylist build and critique complete looks.
+- 🔍 **Look review** — a photo becomes a live card of garments, designer lineage, aesthetic score, and KG associations.
+- 🧬 **Brand DNA** — extract and visualise a brand's signature as a living node cluster.
+- ✨ **Recommendations** — styling and product suggestions grounded in the graph.
+- 🎨 **Generative head (planned)** — a diffusion/GAN module (SDXL + ControlNet + IP-Adapter direction) to *generate* new garments and looks from a brief or a board.
+
+---
+
+## Tech stack
+
+**Core** — Python 3.10+, PyTorch, Hugging Face, OpenCLIP, SQLite, ChromaDB, NetworkX
+**Vision** — Marqo-FashionSigLIP, Qwen2.5-VL, learned aesthetic/movement heads
+**LLM** — Ollama / MLX (local) or API; MLX-LM LoRA for fine-tuning
+**Serving (in progress)** — FastAPI + WebSocket
+**Front end (in progress)** — React + Tailwind + TanStack Query + **tldraw** infinite canvas
+**Compute** — Apple Silicon (MLX) for local training/inference, free Colab GPUs for heavier jobs
+
+---
+
+## Roadmap
+
+- [x] Knowledge-graph core — extraction, entity resolution, reasoning, link prediction
+- [x] Fabric ontology layer
+- [x] RAG + Fusion Context + Output Contract + Memory
+- [x] Fashion vision embedder + VLM look review
+- [x] Runway visual grounding + multimodal KG (mirror nodes, VLM-extracted edges)
+- [x] Evaluation harnesses (designer top-k, KG-vs-RAG lift, LLM-judge, aesthetic scorer)
+- [x] Fashion-LLM data pipeline + LoRA fine-tune
+- [ ] FastAPI + WebSocket serving layer
+- [ ] React + tldraw canvas (look-boards, outfit composition, brand DNA, recommendations)
+- [ ] Generative head — diffusion/GAN garment & look synthesis
+- [ ] Full-cycle orchestration + deployment
+
+---
+
+## Data & references
+
+Built on open datasets with heavy preprocessing — labelled runway imagery, fashion product catalogues, Polyvore-style compatibility, human aesthetic judgments, and a curated domain-text corpus. Grounded in the multimodal-knowledge-graph literature (KG4MM / MM4KG taxonomy, mirror-node MMKG construction, cross-modal alignment, Graph-RAG) and fashion-specific work (FashionCLIP, FashionKLIP, Farfetch NER+EL). See `THESIS_RELATED_WORK.md`, `NOVEL_IDEAS.md`, and `REBUILD_PLAN.md`.
+
+---
+
+<div align="center">
+
+**FashionGraph** — where the symbolic and the visual finally share a wardrobe.
+
+</div>

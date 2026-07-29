@@ -70,14 +70,40 @@ own **confound-controlled minimal-pair** evaluation (same look, change one
 aesthetic variable, hold photo/brand/quality fixed) — the benchmark every peer
 reviewer independently said the field is missing. That is Experiment 3.
 
-## What's next
+## Experiment 2 — frozen-feature critic (the payoff test) — READY TO RUN
 
-**Experiment 2 — frozen-feature critic (the payoff test).**
-Fit the *same* Bradley-Terry head on **frozen FashionSigLIP** embeddings of the
-Surrey images, on the *same image-disjoint split*. If it climbs from 0.573
-toward 0.732, we have direct evidence that frozen fashion features carry a
-taste signal the confounds don't — the money finding. (Needs Surrey embeddings;
-the runway embeddings already exist at `data/embeddings/runway_fashionsiglip.npz`.)
+`frozen_critic.py` fits the **same** Bradley-Terry head on **frozen
+FashionSigLIP** embeddings of the Surrey images, on the **same image-disjoint
+split and seed** as Experiment 1. The only thing that changes is the input:
+768-d frozen embeddings instead of the 10 confounds. If accuracy climbs from
+the 0.573 confound floor toward the 0.732 human ceiling, that is direct
+evidence frozen fashion features carry a taste signal the confounds do not —
+the money finding. It sweeps PCA dims `{none,64,128,256}` so the number isn't
+a cherry-picked projection, and reports the fraction of the confound→human gap
+it closes.
+
+Because the encoder stays **frozen** (we read only a linear head off it), this
+does not re-open the Track-B negative (fine-tuning the encoder distorts its
+features). Verified: the pipeline recovers a planted linear signal on synthetic
+data, and scores random embeddings at chance against the real labels.
+
+**Run it (embedding step on your M4, ~1 min; the model + MPS are already set up
+from building the runway index):**
+
+```bash
+# 1. embed the 1,064 Surrey images with the project's FashionSigLIP
+python experiments/embed_surrey.py \
+    --surrey data/raw/surrey-aesthetics \
+    --out    data/embeddings/surrey_fashionsiglip.npz
+
+# 2. fit the frozen-feature critic and read it against the floor + ceiling
+python experiments/frozen_critic.py \
+    --emb    data/embeddings/surrey_fashionsiglip.npz \
+    --out    experiments/out/frozen_critic
+```
+
+(The embedding step needs the FashionSigLIP weights + torch, which are
+impractical to pull into the throttled sandbox — hence it runs on your Mac.)
 
 **Experiment 3 — confound-controlled minimal-pair benchmark (the flagship).**
 Generate controlled edits (swap shoes / break colour logic / wrong occasion)

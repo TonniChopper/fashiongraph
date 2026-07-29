@@ -1,1 +1,4 @@
 out/*_features.npz
+
+# ignore synthetic self-test scratch
+out/_synth*

@@ -21,26 +21,44 @@ from fg.llm.base import LLM, Message
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-_ACTION_RE = re.compile(r"Action:\s*(search|kg)\s*\[(.+?)\]", re.IGNORECASE | re.DOTALL)
+_KNOWN_TOOLS = {"search", "kg", "style", "brand", "trend"}
+_ACTION_RE = re.compile(r"Action:\s*(\w+)\s*\[(.+?)\]", re.IGNORECASE | re.DOTALL)
 _FINAL_RE = re.compile(r"Final(?:\s*Answer)?:\s*(.+)", re.IGNORECASE | re.DOTALL)
+
+#: Task system prompts for the grounded "capability" tools.
+_TASK_PROMPTS: dict[str, str] = {
+    "style": ("You are an expert personal stylist. Give specific, tasteful, "
+              "actionable styling advice — concrete garments, silhouettes, colours, "
+              "and how to wear them for the person and occasion."),
+    "brand": ("You are a fashion brand strategist. Define the brand DNA: core "
+              "aesthetic, values, signature materials/silhouettes, colour palette, "
+              "reference points, and market positioning. Be concrete and structured."),
+    "trend": ("You are a fashion trend analyst. Analyse the trend: what it is, its "
+              "drivers and lineage, where it's heading, and — if asked to rate one — "
+              "score its plausibility with evidence for and against."),
+}
 
 SYSTEM = """You are FashionGraph, an expert fashion stylist and historian agent.
 
-You can use tools to find information you are unsure about. Prefer your own \
-knowledge and the knowledge graph for established facts (designers, houses, \
-materials, lineage); use web search for anything current, recent, or that you \
-don't know (who holds a role now, latest collections, prices, trends).
+You are the one brain behind a fashion assistant. Decide what the user needs and \
+use the right tool. Prefer the knowledge graph for established facts; use web \
+search for anything current or unknown.
 
-Work one step at a time, in exactly this format:
+Available tools (one per Action):
 
-Thought: <your reasoning>
-Action: search[<query>]      # a web search, OR
-Action: kg[<entity>]         # look up facts in the fashion knowledge graph, OR
+Action: search[<query>]     # live web search — current facts, prices, latest shows
+Action: kg[<entity>]        # facts + designer lineage from the knowledge graph
+Action: style[<request>]    # personal styling advice (outfits, occasion, capsule)
+Action: brand[<brief>]      # define a brand's DNA (aesthetic, values, materials, palette)
+Action: trend[<topic>]      # analyse a trend, or rate how plausible/emerging one is
+
+Or finish with:
+
 Final: <your complete answer for the user>
 
-After each Action you will be shown an Observation. Use it, then continue with \
-another Thought/Action or give your Final answer. Cite sources inline when you \
-used the web. Don't invent facts — search instead."""
+Work one step at a time (Thought → Action → Observation → …). Chain tools when \
+useful (e.g. search for current signals, then trend to analyse them). Cite web \
+sources inline. Never invent facts — look them up."""
 
 
 @dataclass
@@ -68,6 +86,7 @@ class ReActAgent:
         *,
         kg: Any | None = None,
         indexer: Any | None = None,
+        context_builder: Any | None = None,
         max_steps: int = 4,
         k: int = 4,
         on_step: Callable[[str], None] | None = None,
@@ -78,6 +97,8 @@ class ReActAgent:
             llm: LLM backend.
             kg: Optional knowledge graph (enables the ``kg`` tool + ingestion).
             indexer: Optional RAG indexer (enables passage ingestion).
+            context_builder: Optional ``ContextBuilder`` — grounds the style/brand/
+                trend capability tools in KG + RAG.
             max_steps: Max tool iterations before forcing a final answer.
             k: Web-search results per ``search`` call.
             on_step: Optional callback for live step logging.
@@ -85,6 +106,7 @@ class ReActAgent:
         self.llm = llm
         self.kg = kg
         self.indexer = indexer
+        self.context_builder = context_builder
         self.max_steps = max_steps
         self.k = k
         self.on_step = on_step
@@ -109,8 +131,9 @@ class ReActAgent:
             raw = self.llm.chat(messages, temperature=0.2, max_tokens=500)
             final = _FINAL_RE.search(raw)
             action = _ACTION_RE.search(raw)
-            # Prefer a tool action if one appears before the (possibly hallucinated) Final.
-            if action and (not final or action.start() < final.start()):
+            known = action and action.group(1).lower() in _KNOWN_TOOLS
+            # Prefer a known tool action if one appears before the (maybe hallucinated) Final.
+            if known and (not final or action.start() < final.start()):
                 tool, arg = action.group(1).lower(), action.group(2).strip()
                 obs = self._run_tool(tool, arg, sources)
                 trace.append(f"{tool}[{arg}] → {obs[:100]}")
@@ -139,7 +162,25 @@ class ReActAgent:
             return self._tool_search(arg, sources)
         if tool == "kg":
             return self._tool_kg(arg)
+        if tool in _TASK_PROMPTS:
+            return self._grounded(tool, arg)
         return f"Unknown tool {tool!r}."
+
+    def _grounded(self, task: str, arg: str) -> str:
+        """A capability tool (style/brand/trend): LLM under a task prompt, grounded
+        in KG + RAG when a context builder is available."""
+        knowledge = ""
+        if self.context_builder is not None:
+            try:
+                ctx = self.context_builder.build(arg, n_rag=4)
+                knowledge = ctx.knowledge_block()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("grounding failed (%s).", exc)
+        user = arg + (f"\n\nGrounding (use if relevant):\n{knowledge}" if knowledge else "")
+        return self.llm.chat(
+            [Message("system", _TASK_PROMPTS[task]), Message("user", user)],
+            temperature=0.4, max_tokens=600,
+        )
 
     def _tool_search(self, query: str, sources: list[str]) -> str:
         from fg.tools.web_search import web_search

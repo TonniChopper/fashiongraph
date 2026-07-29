@@ -107,7 +107,29 @@ A user's outfit photo is matched **image-to-image against real collections**, th
 - **Fashion-LLM domain adaptation.** A full fine-tuning data pipeline was built and the stylist model was LoRA-adapted for on-domain voice and reasoning:
   - **~775k-word domain corpus** — fashion-history and theory books, museum catalogues (OCR-recovered from scans), *Fashion Studies Journal* criticism, and a fashion-blog dataset, cleaned and chunked.
   - **3,000+ instruction pairs** — *manufactured from the knowledge graph itself* (triples → Q/A, multi-hop paths → "how are X and Y connected", fabric ontology → material Q/A), plus VLM runway captions and a styling-instruct seed. Grounded and deterministic — no hallucinated training facts.
-  - Trained via **MLX-LM LoRA on Apple Silicon**, served through the existing LLM interface with **zero upstream code changes**. Facts remain with RAG/KG at inference — the fine-tune is the *fluency/behaviour* layer, not a fact store.
+  - Trained via **MLX-LM LoRA on Apple Silicon** (val loss roughly halved on held-out styling prompts), served through the existing LLM interface with **zero upstream code changes**. Facts remain with RAG/KG at inference — the fine-tune is the *fluency/behaviour* layer, not a fact store.
+
+---
+
+## Agentic layer — tools & self-growing knowledge
+
+The KG and RAG are static snapshots; the agent makes the system *live*.
+
+- **Autonomous ReAct agent** — the model decides, mid-reasoning, when it needs a tool: the **knowledge graph** for established relational facts, or **live web search** (DuckDuckGo, no API key) for anything current or unknown (who holds a role *now*, latest collections, prices, trends). A bounded Thought → Action → Observation loop, backend-agnostic (works on local Ollama, MLX, or an API), with inline **source citations**.
+- **Self-feeding knowledge ("eats data").** After answering, the agent folds what it just read back into its own memory — page text is chunked, **extracted into KG triples** and **indexed into RAG** through the *exact same* pipeline used for books and Wikipedia. The stylist gets measurably smarter every time it's used.
+- **One ingestion pipeline, many mouths.** Books, Wikipedia, styling datasets, and live web all flow through one source registry → the same `extract_triples` + RAG indexer. Adding a corpus (e.g. a shelf of fashion-history books, ~800k words) is a one-line source registration that feeds **both** the graph and retrieval.
+
+```mermaid
+flowchart LR
+    Q[Question] --> A{Agent · ReAct}
+    A -->|knows it| ANS[Answer + citations]
+    A -->|unsure| KG[(KG lookup)]
+    A -->|current/unknown| WEB[Web search]
+    KG --> ANS
+    WEB --> ANS
+    WEB -.->|after answering| GROW[extract → KG + index → RAG]
+    GROW -.-> KG
+```
 
 ---
 
@@ -162,7 +184,9 @@ Planned canvas capabilities:
 - [x] Runway visual grounding + multimodal KG (mirror nodes, VLM-extracted edges)
 - [x] Evaluation harnesses (designer top-k, KG-vs-RAG lift, LLM-judge, aesthetic scorer)
 - [x] Fashion-LLM data pipeline + LoRA fine-tune
-- [ ] FastAPI + WebSocket serving layer
+- [x] Book/corpus ingestion into KG + RAG (one source, both stores)
+- [x] Autonomous ReAct agent + web search + self-growing knowledge
+- [ ] FastAPI + WebSocket serving layer *(in progress)*
 - [ ] React + tldraw canvas (look-boards, outfit composition, brand DNA, recommendations)
 - [ ] Generative head — diffusion/GAN garment & look synthesis
 - [ ] Full-cycle orchestration + deployment

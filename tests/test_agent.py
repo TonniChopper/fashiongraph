@@ -81,3 +81,23 @@ def test_agent_ingest_collected_indexes():
 
 def test_agent_ingest_noop_when_nothing_collected():
     assert ReActAgent(_StubLLM([]), kg=_FakeKG()).ingest_collected() == {}
+
+
+def test_agent_dispatches_capability_tool():
+    # step 1 → style tool (grounded LLM call), step 2 → final.
+    llm = _StubLLM([
+        "Thought: styling task.\nAction: style[minimalist autumn outfit]",
+        "Wear a charcoal overcoat over black knit and trousers.",  # tool's grounded reply
+        "Final: Here's a clean minimalist autumn look: charcoal overcoat, black knit.",
+    ])
+    res = ReActAgent(llm, kg=_FakeKG(), max_steps=3).run("style me for autumn")
+    assert "charcoal" in res.answer.lower() or "minimalist" in res.answer.lower()
+    assert res.trace and res.trace[0].startswith("style[")
+
+
+def test_agent_ignores_unknown_tool_as_final():
+    # An unknown tool name is not a real action → treated as the answer.
+    llm = _StubLLM(["Action: teleport[home]  — actually, beige is neutral."])
+    res = ReActAgent(llm, kg=_FakeKG(), max_steps=2).run("?")
+    assert "beige" in res.answer.lower()
+    assert res.trace == []

@@ -126,6 +126,86 @@ def _build_router(backend: str | None):
     return router
 
 
+def _cmd_search(query, k) -> None:
+    """Prints DuckDuckGo results (quick tool test, no ingestion)."""
+    from fg.tools.web_search import web_search
+
+    results = web_search(query, k)
+    if not results:
+        print("No results (is `ddgs` installed? pip install ddgs)")
+        return
+    for i, r in enumerate(results, 1):
+        print(f"{i}. {r['title']}\n   {r['url']}\n   {r['snippet'][:180]}\n")
+
+
+def _cmd_learn(query, k, fetch_pages, use_kg, backend) -> None:
+    """Searches the web and folds results into the KG (+ RAG)."""
+    from fg.tools.web_search import learn_from_web
+
+    llm = kg = indexer = None
+    if use_kg:
+        from fg.kg.store import KnowledgeGraph
+        from fg.llm import get_llm
+
+        llm = get_llm(backend) if backend else get_llm()
+        kg = KnowledgeGraph()
+    try:
+        from fg.rag.indexer import FashionKnowledgeIndexer
+
+        indexer = FashionKnowledgeIndexer()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: RAG indexer unavailable: {exc})")
+
+    print(f"\nLearning about “{query}” from the web…\n")
+    stats = learn_from_web(query, llm, kg=kg, indexer=indexer, k=k, fetch_pages=fetch_pages)
+    print("\nLearn summary:")
+    print(f"  results:        {stats['results']}")
+    print(f"  triples added:  {stats['triples_added']}")
+    print(f"  chunks indexed: {stats['chunks_indexed']}")
+    print(f"  sources:        {len(stats['sources'])}")
+
+
+def _cmd_ask(query, max_steps, backend, learn=True) -> None:
+    """Runs the autonomous ReAct agent (KG + web search) on a question.
+
+    When *learn* is set, the agent folds whatever it read on the web back into the
+    KG + RAG after answering — autonomous knowledge growth.
+    """
+    from fg.brain.agent import ReActAgent
+    from fg.llm import get_llm
+
+    llm = get_llm(backend) if backend else get_llm()
+    kg = indexer = None
+    try:
+        from fg.kg.store import KnowledgeGraph
+
+        kg = KnowledgeGraph()
+    except Exception as exc:  # noqa: BLE001
+        print(f"(note: KG unavailable: {exc})")
+    if learn:
+        try:
+            from fg.rag.indexer import FashionKnowledgeIndexer
+
+            indexer = FashionKnowledgeIndexer()
+        except Exception as exc:  # noqa: BLE001
+            print(f"(note: RAG indexer unavailable: {exc})")
+
+    agent = ReActAgent(llm, kg=kg, indexer=indexer, max_steps=max_steps,
+                       on_step=lambda m: print(m))
+    print(f"\nThinking about “{query}”…\n")
+    result = agent.run(query)
+    print("\n" + result.answer)
+    if result.sources:
+        seen = list(dict.fromkeys(result.sources))     # dedupe, keep order
+        print("\nSources:\n" + "\n".join(f"  - {u}" for u in seen))
+
+    if learn:
+        stats = agent.ingest_collected()
+        if stats:
+            print(f"\n📥 Grew knowledge: +{stats['triples_added']} KG triples, "
+                  f"+{stats['chunks_indexed']} RAG chunks from {len(stats['sources'])} pages.")
+
+
 def _cmd_analyze(topic, out, backend, depth, fmt) -> None:
     """Runs trend analysis on a topic."""
     from fg.brain.output_contract import OutputContract
@@ -299,13 +379,13 @@ def _cmd_vision_eval_runway(holdout, neighbors) -> None:
               f"top-5: {res['top5']:.3f}   (random top-1: {res['random_top1']:.3f})")
 
 
-def _cmd_kg_build(source, limit, backend) -> None:
+def _cmd_kg_build(source, limit, backend, chunks_per_doc=4) -> None:
     """Builds the knowledge graph from a corpus source."""
     from fg.kg.build import build_kg
     from fg.llm import get_llm
 
     llm = get_llm(backend) if backend else get_llm()
-    stats = build_kg(llm, source=source, limit=limit)
+    stats = build_kg(llm, source=source, limit=limit, chunks_per_doc=chunks_per_doc)
     print("\nKG build summary:")
     for k, v in stats.as_dict().items():
         print(f"  {k}: {v}")
@@ -501,6 +581,8 @@ def main() -> None:
     kgb = kg.add_parser("build", help="Extract triples from the corpus into the KG")
     kgb.add_argument("--source", default="wikipedia", help="Ingest source (default: wikipedia)")
     kgb.add_argument("--limit", type=int, default=15, help="Docs to process (narrow slice)")
+    kgb.add_argument("--chunks-per-doc", type=int, default=4,
+                     help="Windows to extract per doc (raise for long books, e.g. 20)")
     kgb.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
     kgq = kg.add_parser("query", help="Show facts connected to an entity")
     kgq.add_argument("entity", help="Entity name, e.g. 'Prada'")
@@ -527,6 +609,24 @@ def main() -> None:
     route_p.add_argument("query", help="Natural-language request")
     route_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
 
+    search_p = sub.add_parser("search", help="Web search (DuckDuckGo) — quick test")
+    search_p.add_argument("query", help="Search query")
+    search_p.add_argument("-k", type=int, default=5, help="Number of results")
+
+    learn_p = sub.add_parser("learn", help="Search the web and grow the KG + RAG")
+    learn_p.add_argument("query", help="What to learn about")
+    learn_p.add_argument("-k", type=int, default=5, help="Search results to ingest")
+    learn_p.add_argument("--no-pages", action="store_true", help="Snippets only (skip page fetch)")
+    learn_p.add_argument("--no-kg", action="store_true", help="RAG only (skip KG extraction)")
+    learn_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
+
+    ask_p = sub.add_parser("ask", help="Autonomous agent — answers using the KG + live web search")
+    ask_p.add_argument("query", help="Your question")
+    ask_p.add_argument("--max-steps", type=int, default=4, help="Max tool iterations")
+    ask_p.add_argument("--no-learn", action="store_true",
+                       help="Don't grow the KG/RAG from what it reads")
+    ask_p.add_argument("--backend", default=None, help="LLM backend: ollama|openai")
+
     args = parser.parse_args()
 
     if args.command == "bootstrap":
@@ -550,7 +650,7 @@ def main() -> None:
             parser.parse_args(["vision", "--help"])
     elif args.command == "kg":
         if args.kg_command == "build":
-            _cmd_kg_build(args.source, args.limit, args.backend)
+            _cmd_kg_build(args.source, args.limit, args.backend, args.chunks_per_doc)
         elif args.kg_command == "query":
             _cmd_kg_query(args.entity)
         elif args.kg_command == "stats":
@@ -569,6 +669,12 @@ def main() -> None:
             parser.parse_args(["kg", "--help"])
     elif args.command == "route":
         _cmd_route(args.query, args.backend)
+    elif args.command == "search":
+        _cmd_search(args.query, args.k)
+    elif args.command == "learn":
+        _cmd_learn(args.query, args.k, not args.no_pages, not args.no_kg, args.backend)
+    elif args.command == "ask":
+        _cmd_ask(args.query, args.max_steps, args.backend, not args.no_learn)
     elif args.command == "data":
         if args.data_command == "list":
             _cmd_data_list()

@@ -192,6 +192,55 @@ def load_jsonl_instructions(root: Path) -> Iterator[Document]:
         )
 
 
+def load_fashion_books(root: Path) -> Iterator[Document]:
+    """Loads fashion books/articles (PDF / txt / md) as knowledge documents.
+
+    Reuses the corpus text extractor (de-hyphenation, page-number stripping,
+    PDF via pypdf), so scanned-then-OCR'd ``.txt`` and born-digital PDFs both
+    work. One ``Document`` per file; the filename becomes the title. Feeds both
+    RAG (``data build``) and the KG (``kg build``) from the same registry.
+
+    Args:
+        root: Directory of book files (default ``data/raw/fashion_books``).
+
+    Yields:
+        One ``Document`` per file with extractable text (short/empty files —
+        e.g. image-only scans not yet OCR'd — are skipped).
+
+    Raises:
+        FileNotFoundError: If the directory has no PDF/txt/md files.
+    """
+    from fg.training.build_corpus import read_document
+
+    files = sorted(
+        p for p in root.rglob("*")
+        if p.suffix.lower() in {".pdf", ".txt", ".md"} and p.is_file()
+        and "figures" not in p.parts          # skip the extracted-images folder
+    )
+    if not files:
+        raise FileNotFoundError(f"No PDF/txt/md books under {root}.")
+
+    # Prefer already-extracted text: if a book has a .txt sibling, use it and
+    # skip the PDF (run `python -m fg.training.extract_books` to create them).
+    txt_stems = {p.stem for p in files if p.suffix.lower() in {".txt", ".md"}}
+    for fp in files:
+        if fp.suffix.lower() == ".pdf" and fp.stem in txt_stems:
+            continue
+        try:
+            text = read_document(fp)
+        except Exception as exc:  # noqa: BLE001 — a bad PDF must not kill the build
+            logger.warning("fashion_books: could not read %s (%s) — skipping.", fp.name, exc)
+            continue
+        if len(text.split()) < 50:            # image-only scan / stub → OCR needed
+            logger.info("fashion_books: skipping %s (no extractable text)", fp.name)
+            continue
+        title = fp.stem.replace("-", " ").replace("_", " ").strip()
+        yield Document(
+            text=text,
+            metadata={"source": "fashion_books", "source_type": "book", "title": title},
+        )
+
+
 @dataclass(frozen=True)
 class SourceSpec:
     """Describes one ingestible source.
@@ -232,6 +281,12 @@ SOURCES: dict[str, SourceSpec] = {
         "Styling examples (neuralwork/fashion-style-instruct)",
         "fashion-style-instruct",
         load_jsonl_instructions,
+    ),
+    "fashion_books": SourceSpec(
+        "fashion_books",
+        "Fashion history/theory books, catalogues & criticism (PDF/txt/md)",
+        "fashion_books",
+        load_fashion_books,
     ),
 }
 

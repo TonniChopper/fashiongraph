@@ -1,6 +1,6 @@
 {
     "adapter_path": "adapters/fashion_voice",
-    "batch_size": 4,
+    "batch_size": 1,
     "clear_cache_threshold": 0,
     "config": null,
     "data": "data/processed/corpus",
@@ -17,8 +17,8 @@
     "lr_schedule": null,
     "mask_prompt": false,
     "max_seq_length": 2048,
-    "model": "Qwen/Qwen2.5-7B-Instruct",
-    "num_layers": 16,
+    "model": "Qwen/Qwen2.5-3B-Instruct",
+    "num_layers": 8,
     "optimizer": "adam",
     "optimizer_config": {
         "adam": {},

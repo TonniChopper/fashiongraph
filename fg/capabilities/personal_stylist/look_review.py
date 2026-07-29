@@ -182,7 +182,7 @@ class LookReview(Capability):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Could not encode image for VLM (%s).", exc)
         messages = self._build_messages(perception, occasion, ctx, contract, image_b64)
-        text = self.llm.chat(messages, max_tokens=900)
+        text = self.llm.chat(messages, max_tokens=320 if contract.depth == Depth.SURFACE else 900)
 
         source_set = {h.get("title", "") for h in perception.similar if h.get("title")} | {
             (c.get("metadata", {}).get("title")
@@ -352,21 +352,31 @@ class LookReview(Capability):
                f"## Visually similar catalog pieces\n{perception.similar_text()}\n\n")
             + f"## Styling knowledge (for grounding)\n"
             f"{ctx.knowledge_block() or '(none retrieved)'}\n\n"
-            "## Task\nReview this outfit. Produce these sections:\n"
-            "1. **Silhouette & proportion** — how the shapes read together.\n"
-            "2. **Colour & palette** — what the palette is doing and whether it works.\n"
-            "3. **Occasion fit** — is it right for the context (if given)?\n"
-            "4. **Design lineage** — if associations are given, whose design language "
-            "the look resembles and the aesthetic lineage it traces to (resemblance, "
-            "not attribution). Omit if no associations.\n"
-            "5. **What's working** — the strongest elements.\n"
-            "6. **Styling moves** — 3 concrete, specific changes or additions to "
-            "elevate the look.\n"
-            "If garments weren't detected, review from the references and any "
-            "occasion given, and say what you'd want to see."
+            + self._task_block(contract)
         )
         user_msg = Message("user", user, images=[image_b64] if image_b64 else [])
         return [Message("system", system), user_msg]
+
+    @staticmethod
+    def _task_block(contract: OutputContract) -> str:
+        """Depth-adaptive task — concise for sketches/simple looks, deep for rich ones."""
+        common = (
+            "## Task\nReview this look. Match the length to the subject: if it's a rough "
+            "sketch, a single item, or thin on detail, keep it SHORT and don't over-read it. "
+            "Go deeper only when there's genuinely more to say.\n"
+        )
+        if contract.depth == Depth.SURFACE:
+            return common + (
+                "Write one tight paragraph (3–5 sentences): the overall read, whether it "
+                "suits the occasion if one is given, and 2 quick styling moves. "
+                "No headers, no bullet lists."
+            )
+        return common + (
+            "Cover only what earns its place — silhouette & proportion, colour, occasion "
+            "fit, design lineage (resemblance not attribution, only if associations are "
+            "given), what's working, and up to 3 concrete styling moves. Skip any section "
+            "that would just be padding. Use short **bold** lead-ins, not big headers."
+        )
 
     # ---- io -----------------------------------------------------------
 

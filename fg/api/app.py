@@ -188,8 +188,10 @@ def create_app() -> Any:
         suffix = Path(file.filename or "upload.jpg").suffix or ".jpg"
         tmp = Path(tempfile.gettempdir()) / f"fg_upload{suffix}"
         tmp.write_bytes(data)
+        from fg.brain.output_contract import Depth, Format, OutputContract
         try:
-            result = _reviewer().run({"image_path": str(tmp), "occasion": occasion})
+            result = _reviewer().run({"image_path": str(tmp), "occasion": occasion},
+                                     OutputContract(Depth.SURFACE, Format.CHAT))
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(500, f"Analyze failed: {exc}") from exc
         from fg.brain.cards import build_look_card
@@ -202,6 +204,36 @@ def create_app() -> Any:
             "sources": result.sources,
             "card": build_look_card(result.text, garments, result.sources),
         }
+
+    @app.post("/compose")
+    async def compose(files: list[UploadFile] = File(default=[]), note: str = Form("")) -> dict:
+        """Reviews several garments/looks together as one outfit (one vision call)."""
+        from fg.llm import get_llm
+        from fg.llm.base import Message, encode_image
+
+        imgs = []
+        for f in files:
+            try:
+                imgs.append(encode_image(await f.read()))
+            except Exception:  # noqa: BLE001
+                continue
+        if not imgs and not note:
+            raise HTTPException(400, "Nothing to compose.")
+        try:
+            llm = get_llm(vision=True)
+        except Exception:  # noqa: BLE001
+            llm = _llm()
+        system = ("You are an expert stylist composing a set of pieces into ONE outfit. "
+                  "Look at all the images together. In a tight paragraph: does this group "
+                  "work as a single look, what's the read, and 2–3 concrete moves to make "
+                  "it cohere. Keep it short unless there's genuinely more to say.")
+        user = Message("user", (note or "Compose and review these pieces as one outfit."), images=imgs)
+        try:
+            text = llm.chat([Message("system", system), user], max_tokens=380)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(500, f"Compose failed: {exc}") from exc
+        return {"answer": text, "card": {"type": "look", "review": text, "garments": [],
+                                         "text": text[:180]}}
 
     return app
 

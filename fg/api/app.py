@@ -19,14 +19,41 @@ Run::
     uvicorn fg.api.app:app --reload --port 8000
 """
 
-from __future__ import annotations
+# NOTE: no ``from __future__ import annotations`` here — it breaks FastAPI's
+# multipart (File/Form) schema generation for /analyze on pydantic v2.
 
 import logging
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+class SelItem(BaseModel):
+    """One canvas object the user selected (the referent for 'this')."""
+    type: str = "card"
+    text: str = ""
+    data: dict = Field(default_factory=dict)
+
+
+class ChatIn(BaseModel):
+    """Request body for /agent and /chat."""
+    message: str
+    selection: list[SelItem] = Field(default_factory=list)
+    max_steps: int = 4
+    learn: bool = True
+
+
+def _render_selection(items: list[SelItem]) -> str:
+    """Turns selected canvas objects into a compact referent string."""
+    lines = []
+    for it in items:
+        body = it.text or (", ".join(f"{k}: {v}" for k, v in it.data.items()) if it.data else "")
+        lines.append(f"- ({it.type}) {body}".rstrip())
+    return "\n".join(lines)
 
 #: Lazy singleton cache for expensive components.
 _state: dict[str, Any] = {}
@@ -98,18 +125,12 @@ def create_app() -> Any:
     """Builds and returns the FastAPI application."""
     from fastapi import FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.middleware.cors import CORSMiddleware
-    from pydantic import BaseModel
 
     app = FastAPI(title="FashionGraph API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_credentials=True,
         allow_methods=["*"], allow_headers=["*"],
     )
-
-    class ChatIn(BaseModel):
-        message: str
-        max_steps: int = 4
-        learn: bool = True
 
     @app.get("/health")
     def health() -> dict:
@@ -130,13 +151,17 @@ def create_app() -> Any:
             max_steps=body.max_steps,
         )
         try:
-            res = agent.run(body.message)
+            res = agent.run(body.message, context=_render_selection(body.selection))
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(500, f"Agent failed: {exc}") from exc
         learned = agent.ingest_collected() if body.learn else {}
-        # Minimal canvas payload: an answer card + a card per source.
-        cards = [{"type": "answer", "text": res.answer}]
+        # Canvas payload: the typed cards the capabilities produced (style / brand_dna
+        # / trend / lineage), then source cards. The prose answer rides alongside for
+        # the chat panel.
+        cards = list(res.cards)
         cards += [{"type": "source", "url": u} for u in dict.fromkeys(res.sources)]
+        if not res.cards:                       # plain conversational reply → one answer card
+            cards.insert(0, {"type": "answer", "text": res.answer})
         return {
             "answer": res.answer,
             "sources": list(dict.fromkeys(res.sources)),
@@ -167,11 +192,15 @@ def create_app() -> Any:
             result = _reviewer().run({"image_path": str(tmp), "occasion": occasion})
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(500, f"Analyze failed: {exc}") from exc
+        from fg.brain.cards import build_look_card
+
+        garments = result.data.get("garments", [])
         return {
             "review": result.text,
-            "garments": result.data.get("garments", []),
+            "garments": garments,
             "occasion": occasion,
             "sources": result.sources,
+            "card": build_look_card(result.text, garments, result.sources),
         }
 
     return app

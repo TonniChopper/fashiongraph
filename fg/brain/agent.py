@@ -25,19 +25,6 @@ _KNOWN_TOOLS = {"search", "kg", "style", "brand", "trend"}
 _ACTION_RE = re.compile(r"Action:\s*(\w+)\s*\[(.+?)\]", re.IGNORECASE | re.DOTALL)
 _FINAL_RE = re.compile(r"Final(?:\s*Answer)?:\s*(.+)", re.IGNORECASE | re.DOTALL)
 
-#: Task system prompts for the grounded "capability" tools.
-_TASK_PROMPTS: dict[str, str] = {
-    "style": ("You are an expert personal stylist. Give specific, tasteful, "
-              "actionable styling advice — concrete garments, silhouettes, colours, "
-              "and how to wear them for the person and occasion."),
-    "brand": ("You are a fashion brand strategist. Define the brand DNA: core "
-              "aesthetic, values, signature materials/silhouettes, colour palette, "
-              "reference points, and market positioning. Be concrete and structured."),
-    "trend": ("You are a fashion trend analyst. Analyse the trend: what it is, its "
-              "drivers and lineage, where it's heading, and — if asked to rate one — "
-              "score its plausibility with evidence for and against."),
-}
-
 SYSTEM = """You are FashionGraph, an expert fashion stylist and historian agent.
 
 You are the one brain behind a fashion assistant. Decide what the user needs and \
@@ -58,7 +45,11 @@ Final: <your complete answer for the user>
 
 Work one step at a time (Thought → Action → Observation → …). Chain tools when \
 useful (e.g. search for current signals, then trend to analyse them). Cite web \
-sources inline. Never invent facts — look them up."""
+sources inline. Never invent facts — look them up.
+
+If the user has a canvas selection and asks to change or refine it (e.g. "make it \
+less formal", "add colour", "darker"), call the SAME tool that produced that card \
+with the adjusted request, so an updated card is generated."""
 
 
 @dataclass
@@ -69,6 +60,7 @@ class AgentResult:
     steps: int = 0
     trace: list[str] = field(default_factory=list)
     learned: dict = field(default_factory=dict)
+    cards: list[dict] = field(default_factory=list)   # typed artifacts for the canvas
 
 
 class ReActAgent:
@@ -111,20 +103,27 @@ class ReActAgent:
         self.k = k
         self.on_step = on_step
         self._collected: list[dict] = []      # web results seen this run (for ingestion)
+        self._cards: list[dict] = []          # typed cards produced this run
 
-    def run(self, question: str) -> AgentResult:
+    def run(self, question: str, context: str = "") -> AgentResult:
         """Answers *question*, using tools as needed.
 
         Args:
             question: The user's request.
+            context: Optional referent context — e.g. the canvas object(s) the user
+                selected, so "review this" / "make it less formal" bind to a
+                specific thing rather than being ambiguous ("which *this*?").
 
         Returns:
             An :class:`AgentResult` with answer, cited sources, and a trace.
         """
-        messages: list[Message] = [Message("system", SYSTEM), Message("user", question)]
+        user = (f"[Canvas selection — the user is referring to this]\n{context}\n\n{question}"
+                if context.strip() else question)
+        messages: list[Message] = [Message("system", SYSTEM), Message("user", user)]
         sources: list[str] = []
         trace: list[str] = []
         self._collected = []
+        self._cards = []
         self._seen_urls: set[str] = set()
 
         for step in range(self.max_steps):
@@ -143,44 +142,44 @@ class ReActAgent:
                 messages.append(Message("user", f"Observation: {obs}"))
                 continue
             if final:
-                return AgentResult(final.group(1).strip(), sources, step + 1, trace)
+                return AgentResult(final.group(1).strip(), sources, step + 1, trace,
+                                   cards=list(self._cards))
             # No parsable action or final → treat the whole reply as the answer.
-            return AgentResult(raw.strip(), sources, step + 1, trace)
+            return AgentResult(raw.strip(), sources, step + 1, trace, cards=list(self._cards))
 
         # Out of steps — force a final answer from what we've gathered.
         messages.append(Message("user", "Give your Final answer now, using what you found."))
         raw = self.llm.chat(messages, temperature=0.2, max_tokens=600)
         answer = (_FINAL_RE.search(raw).group(1).strip()
                   if _FINAL_RE.search(raw) else raw.strip())
-        return AgentResult(answer, sources, self.max_steps, trace)
+        return AgentResult(answer, sources, self.max_steps, trace, cards=list(self._cards))
 
     # ---- tools --------------------------------------------------------
 
+    #: capability tool → card builder in fg.brain.cards
+    _CARD_BUILDERS = {"style": "build_style_card", "brand": "build_brand_card",
+                      "trend": "build_trend_card"}
+
     def _run_tool(self, tool: str, arg: str, sources: list[str]) -> str:
-        """Executes a tool and returns an observation string."""
+        """Executes a tool, records any typed card, returns an observation string."""
         if tool == "search":
             return self._tool_search(arg, sources)
         if tool == "kg":
             return self._tool_kg(arg)
-        if tool in _TASK_PROMPTS:
-            return self._grounded(tool, arg)
+        if tool in self._CARD_BUILDERS:
+            return self._capability(tool, arg)
         return f"Unknown tool {tool!r}."
 
-    def _grounded(self, task: str, arg: str) -> str:
-        """A capability tool (style/brand/trend): LLM under a task prompt, grounded
-        in KG + RAG when a context builder is available."""
-        knowledge = ""
-        if self.context_builder is not None:
-            try:
-                ctx = self.context_builder.build(arg, n_rag=4)
-                knowledge = ctx.knowledge_block()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("grounding failed (%s).", exc)
-        user = arg + (f"\n\nGrounding (use if relevant):\n{knowledge}" if knowledge else "")
-        return self.llm.chat(
-            [Message("system", _TASK_PROMPTS[task]), Message("user", user)],
-            temperature=0.4, max_tokens=600,
-        )
+    def _capability(self, tool: str, arg: str) -> str:
+        """Runs a capability tool → a typed card (style/brand/trend), grounded in
+        KG + RAG. The card goes to the canvas; a short summary feeds the loop."""
+        from fg.brain import cards
+
+        builder = getattr(cards, self._CARD_BUILDERS[tool])
+        card = builder(self.llm, arg, self.context_builder)
+        self._cards.append(card)
+        # Observation for the reasoning loop = the card's human summary.
+        return card.get("text") or card.get("title") or card.get("verdict") or "(card produced)"
 
     def _tool_search(self, query: str, sources: list[str]) -> str:
         from fg.tools.web_search import web_search
@@ -223,5 +222,10 @@ class ReActAgent:
     def _tool_kg(self, entity: str) -> str:
         if self.kg is None:
             return "Knowledge graph unavailable."
+        from fg.brain import cards
+
+        card = cards.build_lineage_card(self.kg, entity)
+        if card is not None:
+            self._cards.append(card)          # deterministic lineage card for the canvas
         facts = self.kg.facts_as_text(entity, limit=20)
         return "\n".join(f"- {f}" for f in facts) if facts else f"No KG facts for {entity!r}."

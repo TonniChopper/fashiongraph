@@ -95,6 +95,22 @@ def test_agent_dispatches_capability_tool():
     assert res.trace and res.trace[0].startswith("style[")
 
 
+def test_agent_injects_selection_context():
+    seen = {}
+
+    class CapturingLLM:
+        def chat(self, messages, **kw):
+            seen["user"] = messages[-1].content
+            return "Final: reviewed."
+        def complete(self, *a, **k):
+            return ""
+
+    ReActAgent(CapturingLLM(), kg=_FakeKG()).run(
+        "make it less formal", context="- (look) charcoal suit, white shirt")
+    assert "Canvas selection" in seen["user"]
+    assert "charcoal suit" in seen["user"] and "make it less formal" in seen["user"]
+
+
 def test_agent_ignores_unknown_tool_as_final():
     # An unknown tool name is not a real action → treated as the answer.
     llm = _StubLLM(["Action: teleport[home]  — actually, beige is neutral."])

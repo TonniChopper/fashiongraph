@@ -1,0 +1,18 @@
+{
+  "confound_floor": 0.573,
+  "human_ceiling": 0.7321428571428571,
+  "chance": 0.53689111747851,
+  "frozen_accuracy": 0.6844555873925502,
+  "best_pca": "256",
+  "pca_sweep": {
+    "None": 0.5891833810888252,
+    "64": 0.667621776504298,
+    "128": 0.6747851002865329,
+    "256": 0.6844555873925502
+  },
+  "gain_over_confound": 0.11145558739255024,
+  "fraction_gap_closed": 0.7003492924127932,
+  "train_comparisons": 44905,
+  "test_comparisons": 2792,
+  "seed": 0
+}

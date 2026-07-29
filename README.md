@@ -149,17 +149,20 @@ Measured on honest, leakage-controlled splits (held-out whole collections, not r
 
 ---
 
-## The interface — an infinite creative canvas
+## The interface — *Atelier*, an infinite creative canvas
 
-FashionGraph is not a chat box. The front end is an **infinite tldraw canvas** the model actively works *on*, with a conversational panel alongside it. The AI can read what's on the board, place cards and suggestions, and build artifacts collaboratively.
+FashionGraph is not a chat box. The front end (React + Vite) is a bespoke **infinite canvas** the model works *on*, with an ink-black conversational rail alongside — an editorial-couture aesthetic (Bodoni Moda display, a bone-paper grain, a single scarlet accent).
 
-Planned canvas capabilities:
+![The Atelier canvas](docs/atelier.png)
 
-- 🧵 **Look-boards & mood-boards** — assemble, cluster, and annotate references directly on the canvas.
-- 👗 **Outfit composition from uploaded photos** — drop in garments and let the stylist build and critique complete looks.
-- 🔍 **Look review** — a photo becomes a live card of garments, designer lineage, aesthetic score, and KG associations.
-- 🧬 **Brand DNA** — extract and visualise a brand's signature as a living node cluster.
-- ✨ **Recommendations** — styling and product suggestions grounded in the graph.
+Grounded in a multi-perspective UX study (the interaction verdict: *selection is the input, chat is the escape hatch, never a blank canvas*), the canvas is built and working:
+
+- 🎬 **Never-blank start** — mode-tuned provocation cards (Stylist / Designer / Buyer) seed the board; click one to begin.
+- 🧩 **Typed cards as objects** — every answer lands as a structured, selectable tearsheet: **styling** with real colour swatches, **trend** with a scored gauge + evidence, **lineage** drawn from the KG's own relations, **brand DNA**, **look review**.
+- ✂️ **Create on the canvas** — a toolbar to drop **text notes**, **sketch a silhouette** freehand (the model analyses your drawing), and **upload / drop** photos (which render *and* auto-review).
+- 🔗 **Connect & group** — wire objects together with scarlet connection lines; select a group of garments + a note and **compose them into one outfit in a single vision call**.
+- 🔁 **Refine in place** — select a card, say *"make it less formal,"* and it regenerates as the same card type (the correction loop).
+- 💾 **Persistent** — the whole board (cards, images, sketches, links, chat) survives reloads; drag anything anywhere; auto-focus brings new answers into view.
 - 🎨 **Generative head (planned)** — a diffusion/GAN module (SDXL + ControlNet + IP-Adapter direction) to *generate* new garments and looks from a brief or a board.
 
 ---
@@ -169,8 +172,8 @@ Planned canvas capabilities:
 **Core** — Python 3.10+, PyTorch, Hugging Face, OpenCLIP, SQLite, ChromaDB, NetworkX
 **Vision** — Marqo-FashionSigLIP, Qwen2.5-VL, learned aesthetic/movement heads
 **LLM** — Ollama / MLX (local) or API; MLX-LM LoRA for fine-tuning
-**Serving (in progress)** — FastAPI + WebSocket
-**Front end (in progress)** — React + Tailwind + TanStack Query + **tldraw** infinite canvas
+**Serving** — FastAPI (`/agent`, `/analyze`, `/compose`)
+**Front end** — React + Vite, a bespoke infinite canvas (no framework lock-in), editorial type (Bodoni Moda · Archivo)
 **Compute** — Apple Silicon (MLX) for local training/inference, free Colab GPUs for heavier jobs
 
 ---
@@ -186,8 +189,8 @@ Planned canvas capabilities:
 - [x] Fashion-LLM data pipeline + LoRA fine-tune
 - [x] Book/corpus ingestion into KG + RAG (one source, both stores)
 - [x] Autonomous ReAct agent + web search + self-growing knowledge
-- [ ] FastAPI + WebSocket serving layer *(in progress)*
-- [ ] React + tldraw canvas (look-boards, outfit composition, brand DNA, recommendations)
+- [x] FastAPI serving layer — one `/agent` router + `/analyze` + `/compose` (multi-image)
+- [x] Infinite-canvas front end (React) — typed cards, sketch/text/upload, connect-to-group, refine-in-place, persistence
 - [ ] Generative head — diffusion/GAN garment & look synthesis
 - [ ] Full-cycle orchestration + deployment
 

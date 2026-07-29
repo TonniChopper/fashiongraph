@@ -133,13 +133,60 @@ python experiments/frozen_critic.py \
 (The embedding step needs the FashionSigLIP weights + torch, which are
 impractical to pull into the throttled sandbox — hence it runs on your Mac.)
 
-**Experiment 3 — confound-controlled minimal-pair benchmark (the flagship).**
-Generate controlled edits (swap shoes / break colour logic / wrong occasion)
-holding lighting, model, resolution and brand fixed; collect expert-rubric or
-human labels; test whether any scorer tracks the *edit* while a confound-only
-model cannot. Publishable either way.
+## Experiment 2.5 — what IS the taste axis? (concept-axis probe)
 
-## Run
+`concept_probe.py` makes the 0.684 signal interpretable. FashionSigLIP is a
+shared image/text space, so a named style concept is just a direction defined
+by two prompts: `axis = normalise(enc("a minimalist outfit") − enc("an ornate
+outfit"))`. We project every frozen image embedding onto ~10 such axes
+(minimal↔ornate, tailored↔shapeless, colour-harmony, polished↔sloppy,
+proportion, elegant↔tacky, …), then (a) fit the same Bradley-Terry head on just
+those named coordinates — how close a dozen *words* get to the opaque 0.684
+critic is how much of taste they explain — and (b) rank each concept by how well
+it predicts "better," turning "the machine has taste" into "here is what its
+taste is made of." Verified on synthetic data (recovers a planted concept).
+
+```bash
+python experiments/concept_probe.py \
+    --emb data/embeddings/surrey_fashionsiglip.npz \
+    --out experiments/out/concept_probe          # text encoding runs on M4
+```
+
+## Experiment 3 (rung 1) — context-conditional minimal pairs — BENCHMARK BUILT
+
+The flagship idea in its cheapest, artifact-free form. Taste is "right FOR this
+context," so we hold the **image perfectly fixed** and change only the
+**context**. A per-image beauty/confound scalar gives the *same* score to both
+contexts of a pair → **0.500 by construction**; a context-conditional scorer
+can do better. No image editing → none of the generative artifacts that sink
+diffusion-based tests.
+
+`build_context_benchmark.py` parses the runway captions and, using a
+**transparent stylist rules table** (garment cue → season / formality, the KG's
+knowledge written out and auditable — *not* the model under test), emits minimal
+pairs `(image, context_good, context_bad)`. Already generated:
+**105 pairs** (43 season: wool-coat/puffer → cold not beach; 62 formality:
+suit/gown → formal event not gym). `eval_context.py` scores image-context
+compatibility with frozen FashionSigLIP and reports accuracy vs the 0.500 scalar
+control — any lift is context sensitivity a scalar taste model is mathematically
+incapable of.
+
+```bash
+# benchmark.jsonl already committed; regenerate with:
+python experiments/build_context_benchmark.py \
+    --captions data/processed/runway_captions.jsonl \
+    --out      experiments/out/context_benchmark.jsonl
+# score it (needs the model -> M4):
+python experiments/eval_context.py \
+    --benchmark experiments/out/context_benchmark.jsonl \
+    --out       experiments/out/context_eval
+```
+
+Rung 1 tests context-*appropriateness* (partly recognition). Rung 2 (future) is
+the harder aesthetic minimal pair — same look, break colour logic — which needs
+controlled image edits and expert labels.
+
+## Run (Experiment 1)
 
 ```bash
 python experiments/confound_baseline.py \

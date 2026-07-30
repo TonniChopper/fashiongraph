@@ -84,6 +84,15 @@ body {
 .mode-pill[data-on="true"] { background: var(--ink); color: var(--paper); }
 .mode-pill:hover[data-on="false"] { color: var(--ink); }
 
+.boards { margin-left: 14px; display: flex; align-items: center; gap: 6px; }
+.board-btn, .board-sel {
+  font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 12px; cursor: pointer; transition: all 0.15s var(--ease);
+}
+.board-btn:hover { color: var(--ink); border-color: var(--line-strong); }
+.board-sel { padding: 6px 8px; }
+
 .status { margin-left: auto; display: flex; align-items: center; gap: 7px; }
 .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); }
 .status .dot[data-ok="true"] { background: #3f9b53; box-shadow: 0 0 0 3px rgba(63,155,83,0.15); }
@@ -230,6 +239,48 @@ body {
   animation: sweep 1.3s infinite; }
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 .skв { height: 12px; background: var(--bone-2); border-radius: 3px; margin: 8px 0; }
+
+/* ---------- the atelier assistant (agent sprite) ---------- */
+.sprite {
+  position: absolute; z-index: 45; pointer-events: none;
+  transform: translate(-50%, -100%);
+  transition: left 0.7s var(--ease), top 0.7s var(--ease);
+  filter: drop-shadow(0 4px 6px rgba(20, 16, 10, 0.22));
+}
+.sprite svg { display: block; animation: sp-bob 0.44s ease-in-out infinite; overflow: visible; }
+.sprite .sp-limb { fill: #2a231a; }
+.sprite .sp-coat { fill: var(--ink); }
+.sprite .sp-shoe { fill: var(--scarlet); }
+.sprite .sp-placket { stroke: #4a4034; stroke-width: 1; opacity: 0.7; }
+.sprite .sp-btn { fill: var(--scarlet); }
+.sprite .sp-scarf { fill: var(--scarlet); transform-origin: 23px 26px; animation: sp-scarf 0.66s ease-in-out infinite; }
+.sprite .sp-head { fill: #f6ecdb; stroke: var(--ink); stroke-width: 1.6; }
+.sprite .sp-eye { fill: var(--ink); }
+.sprite .sp-smile { stroke: var(--ink); stroke-width: 1.3; fill: none; stroke-linecap: round; }
+.sprite .sp-cheek { fill: var(--scarlet); opacity: 0.4; }
+.sprite .sp-beret { fill: var(--scarlet); }
+.sprite .sp-scissor { stroke: var(--scarlet); stroke-width: 1.6; stroke-linecap: round; }
+.sprite .sp-scissor-d { fill: none; stroke: var(--scarlet); stroke-width: 1.2; }
+.sprite .sp-tool { transform-origin: 38px 32px; animation: sp-snip 0.5s ease-in-out infinite; }
+.sprite .sp-arm { transform-origin: 36px 28px; animation: sp-armswing 0.44s ease-in-out infinite; }
+.sprite .sp-leg.a { transform-origin: 25px 42px; animation: sp-legA 0.44s ease-in-out infinite; }
+.sprite .sp-leg.b { transform-origin: 32px 42px; animation: sp-legB 0.44s ease-in-out infinite; }
+@keyframes sp-bob { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-3px) rotate(1.5deg); } }
+@keyframes sp-legA { 0%, 100% { transform: rotate(20deg); } 50% { transform: rotate(-20deg); } }
+@keyframes sp-legB { 0%, 100% { transform: rotate(-20deg); } 50% { transform: rotate(20deg); } }
+@keyframes sp-armswing { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(10deg); } }
+@keyframes sp-scarf { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-12deg); } }
+@keyframes sp-snip { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-9deg); } }
+.sprite-bubble {
+  position: absolute; bottom: 100%; left: 50%; transform: translate(-50%, -4px);
+  background: var(--ink); color: var(--paper); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+  padding: 4px 9px; border-radius: 999px;
+}
+.sprite-bubble::after {
+  content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 4px solid transparent; border-top-color: var(--ink);
+}
 
 /* ---------- toolbar (left) ---------- */
 .canvas.placing { cursor: crosshair; }

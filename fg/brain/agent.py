@@ -82,6 +82,7 @@ class ReActAgent:
         max_steps: int = 4,
         k: int = 4,
         on_step: Callable[[str], None] | None = None,
+        on_card: Callable[[dict], None] | None = None,
     ) -> None:
         """Initializes the agent.
 
@@ -102,6 +103,7 @@ class ReActAgent:
         self.max_steps = max_steps
         self.k = k
         self.on_step = on_step
+        self.on_card = on_card
         self._collected: list[dict] = []      # web results seen this run (for ingestion)
         self._cards: list[dict] = []          # typed cards produced this run
 
@@ -178,6 +180,8 @@ class ReActAgent:
         builder = getattr(cards, self._CARD_BUILDERS[tool])
         card = builder(self.llm, arg, self.context_builder)
         self._cards.append(card)
+        if self.on_card:
+            self.on_card(card)
         # Observation for the reasoning loop = the card's human summary.
         return card.get("text") or card.get("title") or card.get("verdict") or "(card produced)"
 
@@ -227,5 +231,7 @@ class ReActAgent:
         card = cards.build_lineage_card(self.kg, entity)
         if card is not None:
             self._cards.append(card)          # deterministic lineage card for the canvas
+            if self.on_card:
+                self.on_card(card)
         facts = self.kg.facts_as_text(entity, limit=20)
         return "\n".join(f"- {f}" for f in facts) if facts else f"No KG facts for {entity!r}."

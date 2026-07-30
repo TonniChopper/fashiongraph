@@ -88,11 +88,23 @@ def _indexer() -> Any:
     return _state["indexer"]
 
 
+def _retriever() -> Any:
+    """RAG *read* side — a FashionRetriever (the indexer is write-only)."""
+    if "retriever" not in _state:
+        try:
+            from fg.rag.retriever import FashionRetriever
+            _state["retriever"] = FashionRetriever()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG retriever unavailable (%s).", exc)
+            _state["retriever"] = None
+    return _state["retriever"]
+
+
 def _context() -> Any:
     """Builds a ContextBuilder (KG + RAG) for grounding the capability tools."""
     if "context" not in _state:
         from fg.brain.context_builder import ContextBuilder
-        _state["context"] = ContextBuilder(_indexer(), kg=_kg())
+        _state["context"] = ContextBuilder(_retriever(), kg=_kg())
     return _state["context"]
 
 
@@ -110,7 +122,7 @@ def _reviewer() -> Any:
             logger.warning("Vision LLM unavailable (%s) — text fallback.", exc)
             llm = _llm()
         stack = build_perception_stack(on_note=lambda m: logger.info("perception: %s", m))
-        ctx = ContextBuilder(_indexer(), kg=stack.kg or _kg())
+        ctx = ContextBuilder(_retriever(), kg=stack.kg or _kg())
         _state["reviewer"] = LookReview(
             llm, embedder=stack.embedder, segmenter=stack.segmenter,
             visual_index=stack.visual_index, aesthetic_scorer=stack.aesthetic_scorer,
@@ -176,6 +188,92 @@ def create_app() -> Any:
         agent picks the tool. Returns an answer + canvas cards + sources."""
         return _run_agent(body)
 
+    @app.post("/agent/stream")
+    def agent_stream(body: ChatIn):
+        """Same router, streamed (SSE): live `step` + `card` events, then `final`.
+        Lets the canvas show thinking and place cards incrementally."""
+        import json
+        import queue
+        import threading
+        from fastapi.responses import StreamingResponse
+        from fg.brain.agent import ReActAgent
+
+        q: "queue.Queue" = queue.Queue()
+        emit = lambda kind, **d: q.put({"type": kind, **d})
+
+        def work() -> None:
+            agent = ReActAgent(
+                _llm(), kg=_kg(), indexer=_indexer() if body.learn else None,
+                context_builder=_context(), max_steps=body.max_steps,
+                on_step=lambda m: emit("step", text=m),
+                on_card=lambda c: emit("card", card=c),
+            )
+            try:
+                res = agent.run(body.message, context=_render_selection(body.selection))
+                learned = agent.ingest_collected() if body.learn else {}
+                emit("final", answer=res.answer,
+                     sources=list(dict.fromkeys(res.sources)), learned=learned)
+            except Exception as exc:  # noqa: BLE001
+                emit("error", message=str(exc))
+            q.put(None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+        def gen():
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+
+        return StreamingResponse(gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # ---- boards: server-side save / load ----
+    _boards_dir = Path(_state.get("boards_dir") or "data/boards")
+
+    class Board(BaseModel):
+        id: str = ""
+        name: str = "Untitled board"
+        state: dict = Field(default_factory=dict)
+
+    @app.get("/boards")
+    def list_boards() -> list:
+        _boards_dir.mkdir(parents=True, exist_ok=True)
+        out = []
+        for p in sorted(_boards_dir.glob("*.json")):
+            try:
+                d = __import__("json").loads(p.read_text())
+                out.append({"id": p.stem, "name": d.get("name", p.stem),
+                            "saved": p.stat().st_mtime})
+            except Exception:  # noqa: BLE001
+                continue
+        return out
+
+    @app.get("/boards/{board_id}")
+    def get_board(board_id: str) -> dict:
+        import json as _j
+        p = _boards_dir / f"{board_id}.json"
+        if not p.exists():
+            raise HTTPException(404, "No such board.")
+        return _j.loads(p.read_text())
+
+    @app.post("/boards")
+    def save_board(board: Board) -> dict:
+        import json as _j
+        import re
+        import time
+        _boards_dir.mkdir(parents=True, exist_ok=True)
+        bid = board.id or (re.sub(r"[^a-z0-9]+", "-", board.name.lower()).strip("-") or "board")
+        data = {"id": bid, "name": board.name, "state": board.state, "saved": time.time()}
+        (_boards_dir / f"{bid}.json").write_text(_j.dumps(data))
+        return {"id": bid, "name": board.name}
+
+    @app.delete("/boards/{board_id}")
+    def delete_board(board_id: str) -> dict:
+        (_boards_dir / f"{board_id}.json").unlink(missing_ok=True)
+        return {"deleted": board_id}
+
     @app.post("/chat")
     def chat(body: ChatIn) -> dict:
         """Alias of /agent (free-form chat)."""
@@ -234,6 +332,14 @@ def create_app() -> Any:
             raise HTTPException(500, f"Compose failed: {exc}") from exc
         return {"answer": text, "card": {"type": "look", "review": text, "garments": [],
                                          "text": text[:180]}}
+
+    # Serve the built front end (if present) so the whole app is one process on one
+    # port — no separate dev server, no CORS. Registered LAST so API routes win.
+    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if dist.exists():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=str(dist), html=True), name="app")
+        logger.info("Serving front end from %s", dist)
 
     return app
 

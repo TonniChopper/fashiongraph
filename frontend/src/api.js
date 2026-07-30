@@ -1,5 +1,6 @@
-// Thin client for the FashionGraph backend. In dev, Vite proxies /api → :8000.
-const BASE = import.meta.env.VITE_API_BASE || "/api";
+// Thin client for the FashionGraph backend. Same-origin by default (the backend
+// serves this app in production); in dev, Vite proxies the API paths → :8000.
+const BASE = import.meta.env.VITE_API_BASE ?? "";
 
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {
@@ -51,6 +52,39 @@ export async function compose(dataUrls = [], note = "") {
   if (!res.ok) throw new Error(`/compose → ${res.status}`);
   return res.json();
 }
+
+// Streamed agent run (SSE over POST): live step/card events, then final.
+export async function agentStream(body, h) {
+  const res = await fetch(`${BASE}/agent/stream`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!res.ok || !res.body) throw new Error(`/agent/stream → ${res.status}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const line = buf.slice(0, i); buf = buf.slice(i + 2);
+      const data = line.split("\n").find((l) => l.startsWith("data:"));
+      if (!data) continue;
+      let ev; try { ev = JSON.parse(data.slice(5).trim()); } catch { continue; }
+      if (ev.type === "step") h.onStep?.(ev.text);
+      else if (ev.type === "card") h.onCard?.(ev.card);
+      else if (ev.type === "final") h.onFinal?.(ev);
+      else if (ev.type === "error") h.onError?.(ev.message);
+    }
+  }
+}
+
+// Boards — server-side save/load.
+export const listBoards = () => fetch(`${BASE}/boards`).then((r) => (r.ok ? r.json() : []));
+export const getBoard = (id) => fetch(`${BASE}/boards/${id}`).then((r) => r.json());
+export const saveBoard = (name, state) => post("/boards", { name, state });
+export const deleteBoard = (id) => fetch(`${BASE}/boards/${id}`, { method: "DELETE" }).then((r) => r.json());
 
 export async function health() {
   try {

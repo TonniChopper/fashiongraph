@@ -178,6 +178,35 @@ Grounded in a multi-perspective UX study (the interaction verdict: *selection is
 
 ---
 
+## Run it
+
+**Prerequisites:** Python 3.10+, Node 20+, and [Ollama](https://ollama.com) with the models pulled:
+
+```bash
+ollama serve
+ollama pull qwen2.5:7b-instruct qwen2.5vl:7b   # brain + vision
+```
+
+**One command** (builds the UI, then serves API + UI on one port):
+
+```bash
+pip install -e . && pip install fastapi "uvicorn[standard]" python-multipart
+./scripts/run.sh          #  → http://localhost:8000
+```
+
+**Dev mode** (hot-reload UI on :5173, API on :8000; Vite proxies the API routes):
+
+```bash
+uvicorn fg.api.app:app --reload --port 8000        # terminal 1
+cd frontend && npm install && npm run dev          # terminal 2  → http://localhost:5173
+```
+
+**Docker** (app in a container, Ollama stays on the host for GPU/Metal):
+
+```bash
+docker compose up --build   #  → http://localhost:8000
+```
+
 ## Roadmap
 
 - [x] Knowledge-graph core — extraction, entity resolution, reasoning, link prediction

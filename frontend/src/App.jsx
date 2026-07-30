@@ -81,16 +81,21 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [ok, setOk] = useState(false);
   const [focus, setFocus] = useState(null);
+  const [liveSteps, setLiveSteps] = useState([]);
+  const [boards, setBoards] = useState([]);
+  const [agentAt, setAgentAt] = useState(null);   // world pos the sprite runs to
+  const [agentStep, setAgentStep] = useState("");
   const cols = useRef(saved?.cols || [START_Y, START_Y, START_Y]);
   const seeded = useRef((saved?.nodes || []).some((n) => n.kind !== "starter"));
 
-  useEffect(() => { api.health().then((h) => setOk(!!h)); }, []);
+  useEffect(() => { api.health().then((h) => setOk(!!h)); refreshBoards(); }, []);
+  const refreshBoards = () => api.listBoards().then(setBoards).catch(() => {});
   useEffect(() => {
     try { localStorage.setItem(STORE, JSON.stringify({ mode, nodes, edges, messages, cols: cols.current })); } catch {}
   }, [mode, nodes, edges, messages]);
 
   useEffect(() => {
-    if (seeded.current || nodes.length) return;
+    if (seeded.current) return;   // real work exists → keep it; only reseed a fresh board
     setNodes((STARTERS[mode] || []).map((s, i) => ({
       id: uid(), kind: "starter", type: "answer", w: COL_W, x: START_X + i * (COL_W + GAP), y: START_Y, ...s,
     })));
@@ -123,6 +128,30 @@ export default function App() {
     return added;
   };
 
+  // Place a single card at an explicit spot (used to cluster a response next to its source).
+  const placeAtPos = (card, x, y) => {
+    const node = { id: uid(), kind: "card", type: card.type, card, w: CARD_WIDTH[card.type] || 320, x, y, enter: true };
+    setNodes((prev) => [...clearStarters(prev), node]);
+    return node;
+  };
+
+  // Drop cards clustered beside their source and chained, so lines are short + connected.
+  const clusterFrom = (sourceId, cards) => {
+    const src = sourceId ? nodes.find((n) => n.id === sourceId) : null;
+    let ax = src ? src.x + (src.w || 320) + 72 : null;
+    let ay = src ? src.y : null;
+    let prev = sourceId || null;
+    const out = [];
+    for (const card of cards) {
+      const node = ax != null ? placeAtPos(card, ax, ay) : placeCards([card])[0];
+      if (ax != null) ay += (EST_H[card.type] || 180) + 24;
+      if (prev) addEdge(prev, node.id);
+      prev = node.id; out.push(node);
+    }
+    focusOn(out);
+    return out;
+  };
+
   const addEdge = (a, b) => {
     if (a === b) return;
     setEdges((prev) => (prev.some((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a)) ? prev
@@ -147,21 +176,38 @@ export default function App() {
 
   const runAgent = async (message, selection = [], opts = {}) => {
     if (message) setMessages((m) => [...m, { role: "user", text: message }]);
-    setSending(true);
+    setSending(true); setLiveSteps([]); setAgentStep("thinking");
+    const steps = []; const added = []; let replaced = false;
+    // Cluster the response next to its source; chain cards so every line is short + connected.
+    const src = opts.sourceId ? nodes.find((n) => n.id === opts.sourceId) : null;
+    let ax = src ? src.x + (src.w || 320) + 72 : null;
+    let ay = src ? src.y : null;
+    let prevId = opts.sourceId || null;
+    const drop = (card) => {
+      const node = ax != null ? placeAtPos(card, ax, ay) : placeCards([card])[0];
+      if (ax != null) ay += (EST_H[card.type] || 180) + 24;
+      added.push(node);
+      if (prevId) addEdge(prevId, node.id);   // source → c1 → c2 → …
+      prevId = node.id;
+      return node;
+    };
     try {
-      const res = await api.agent({ message, selection });
-      if (opts.replaceId && res.cards?.length) {
-        const fresh = res.cards.find((c) => c.type === opts.expectType) || res.cards[0];
-        updateNode(opts.replaceId, { card: fresh, enter: false });
-      } else {
-        const added = placeCards(res.cards);
-        if (opts.sourceId) linkTo(opts.sourceId, added);
-        focusOn(added);
-      }
-      setMessages((m) => [...m, { role: "ai", text: res.answer, steps: res.trace, learned: res.learned }]);
+      await api.agentStream({ message, selection, learn: true, max_steps: 4 }, {
+        onStep: (s) => { steps.push(s); setLiveSteps([...steps]); setAgentStep(s); },
+        onCard: (card) => {
+          if (opts.replaceId && !replaced) { replaced = true; updateNode(opts.replaceId, { card, enter: false }); prevId = opts.replaceId; }
+          else { const node = drop(card); setAgentAt({ x: node.x + node.w / 2, y: node.y + (EST_H[card.type] || 180) / 2 }); }
+        },
+        onFinal: (ev) => {
+          (ev.sources || []).forEach((u) => drop({ type: "source", url: u }));
+          focusOn(added);
+          setMessages((m) => [...m, { role: "ai", text: ev.answer, steps, learned: ev.learned }]);
+        },
+        onError: () => setMessages((m) => [...m, { role: "ai", text: "The atelier hit an error mid-thought." }]),
+      });
     } catch {
       setMessages((m) => [...m, { role: "ai", text: "The atelier is unreachable — is the backend running on :8000?" }]);
-    } finally { setSending(false); }
+    } finally { setSending(false); setLiveSteps([]); setAgentStep(""); }
   };
 
   const summarise = (card) => card.text
@@ -186,7 +232,7 @@ export default function App() {
     setSending(true); setMessages((m) => [...m, { role: "user", text: "Review this look ↑" }]);
     try {
       const res = await api.analyzeDataUrl(src);
-      const added = placeCards([res.card]); linkTo(id, added); focusOn(added);
+      clusterFrom(id, [res.card]);
       setMessages((m) => [...m, { role: "ai", text: res.review }]);
     } catch { setMessages((m) => [...m, { role: "ai", text: "Couldn't review that image — check the backend." }]); }
     finally { setSending(false); }
@@ -198,7 +244,7 @@ export default function App() {
     setSending(true); setMessages((m) => [...m, { role: "user", text: "Analyze this silhouette ↑" }]);
     try {
       const res = await api.analyzeDataUrl(rasterizeSketch(n), "hand-drawn silhouette sketch");
-      const added = placeCards([res.card]); linkTo(id, added); focusOn(added);
+      clusterFrom(id, [res.card]);
       setMessages((m) => [...m, { role: "ai", text: res.review }]);
     } catch { setMessages((m) => [...m, { role: "ai", text: "Couldn't read that sketch — check the backend." }]); }
     finally { setSending(false); }
@@ -213,7 +259,7 @@ export default function App() {
       setSending(true); setMessages((m) => [...m, { role: "user", text: `Analyze this group of ${members.length} ↑` }]);
       try {
         const res = await api.compose(images, note);
-        const added = placeCards([res.card]); linkTo(id, added); focusOn(added);
+        clusterFrom(id, [res.card]);
         setMessages((m) => [...m, { role: "ai", text: res.answer }]);
       } catch { setMessages((m) => [...m, { role: "ai", text: "Couldn't compose the group — check the backend." }]); }
       finally { setSending(false); }
@@ -259,6 +305,24 @@ export default function App() {
     setNodes([]); setEdges([]); setSelectedId(null);
   };
 
+  const saveCurrent = async () => {
+    const name = prompt("Name this board", "Board " + new Date().toLocaleDateString());
+    if (!name) return;
+    try { await api.saveBoard(name, { nodes, edges, mode }); refreshBoards(); }
+    catch { alert("Couldn't save — is the backend running?"); }
+  };
+  const loadBoard = async (id) => {
+    if (!id) return;
+    try {
+      const d = await api.getBoard(id); const st = d.state || {};
+      setNodes(st.nodes || []); setEdges(st.edges || []); if (st.mode) setMode(st.mode);
+      seeded.current = (st.nodes || []).some((n) => n.kind !== "starter");
+      const maxY = Math.max(START_Y, ...(st.nodes || []).map((n) => n.y + estH(n)));
+      cols.current = [maxY + GAP, maxY + GAP, maxY + GAP];
+      setSelectedId(null);
+    } catch {}
+  };
+
   return (
     <div className="app">
       <div>
@@ -269,11 +333,19 @@ export default function App() {
               <button key={m.id} className="mode-pill" data-on={mode === m.id} onClick={() => setMode(m.id)}>{m.label}</button>
             ))}
           </div>
+          <div className="boards">
+            <button className="board-btn" onClick={saveCurrent}>Save</button>
+            <select className="board-sel" value="" onChange={(e) => { loadBoard(e.target.value); e.target.value = ""; }}>
+              <option value="">Load…</option>
+              {boards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
           <div className="status"><span className="dot" data-ok={ok} /><span className="label">{ok ? "Atelier live" : "Offline"}</span></div>
         </header>
 
         <Canvas
           nodes={nodes} edges={edges} focus={focus}
+          sending={sending} agentAt={agentAt} agentStep={agentStep}
           tool={tool} setTool={setTool}
           selectedId={selectedId} onSelect={setSelectedId} onDeselect={() => setSelectedId(null)}
           onStarter={(n) => runAgent(n.prompt, [])}
@@ -283,7 +355,7 @@ export default function App() {
         />
       </div>
 
-      <ChatRail messages={messages} sending={sending} onSend={(t) => runAgent(t, [])} />
+      <ChatRail messages={messages} sending={sending} liveSteps={liveSteps} onSend={(t) => runAgent(t, [])} />
     </div>
   );
 }

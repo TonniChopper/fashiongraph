@@ -40,12 +40,14 @@ class KnowledgeGraph:
             db_path: File path, or ``":memory:"`` for an ephemeral store;
                 defaults to ``data/kg/fashion_kg.sqlite``.
         """
+        # check_same_thread=False so the graph can be read from a worker thread
+        # (the streaming/SSE endpoint runs the agent off the request thread).
         if db_path == ":memory:":
-            self.conn = sqlite3.connect(":memory:")
+            self.conn = sqlite3.connect(":memory:", check_same_thread=False)
         else:
             p = Path(db_path) if db_path else _default_db_path()
             p.parent.mkdir(parents=True, exist_ok=True)
-            self.conn = sqlite3.connect(str(p))
+            self.conn = sqlite3.connect(str(p), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._init_schema()
 

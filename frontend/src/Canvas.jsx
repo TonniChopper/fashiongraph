@@ -10,7 +10,7 @@ const nodeH = (n) => n.h || NH[n.type] || NH[n.kind] || 180;
 const centerOf = (n) => [n.x + (n.w || CARD_WIDTH[n.type] || 320) / 2, n.y + nodeH(n) / 2];
 
 export default function Canvas({
-  nodes, edges = [], focus, tool, setTool, selectedId, onSelect, onDeselect,
+  nodes, edges = [], focus, sending, agentAt, agentStep, tool, setTool, selectedId, onSelect, onDeselect,
   onStarter, onPlace, onDropImage, onUpload, onUpdateNode, onAction, onRefine, onAddEdge, onDeleteEdge, onClear,
 }) {
   const ref = useRef(null);
@@ -206,6 +206,45 @@ export default function Canvas({
         <span className="pct">{Math.round(t.scale * 100)}%</span>
         <button onClick={() => zoom(1)} aria-label="Zoom in">+</button>
       </div>
+
+      {sending && (
+        <AgentSprite
+          pos={agentAt ? { x: agentAt.x * t.scale + t.x, y: agentAt.y * t.scale + t.y } : null}
+          step={agentStep}
+        />
+      )}
+    </div>
+  );
+}
+
+function AgentSprite({ pos, step }) {
+  const prev = useRef({ x: 160, y: 260 });
+  const target = pos || { x: 130, y: (typeof window !== "undefined" ? window.innerHeight : 700) * 0.44 };
+  const facingLeft = target.x < prev.current.x - 2;
+  useEffect(() => { prev.current = target; });
+  const m = (step || "").match(/(\w+)\s*\[/);
+  const label = m ? m[1] : step === "thinking" || !step ? "thinking" : step;
+  return (
+    <div className="sprite" style={{ left: target.x, top: target.y }}>
+      <div className="sprite-bubble">{label}…</div>
+      <svg width="58" height="68" viewBox="0 0 58 68" style={{ transform: facingLeft ? "scaleX(-1)" : "none" }}>
+        <g className="sp-legs">
+          <g className="sp-leg a"><rect className="sp-limb" x="24" y="41" width="3.4" height="13" rx="1.7" /><ellipse className="sp-shoe" cx="24.5" cy="55" rx="3.8" ry="2.1" /></g>
+          <g className="sp-leg b"><rect className="sp-limb" x="30.6" y="41" width="3.4" height="13" rx="1.7" /><ellipse className="sp-shoe" cx="34.5" cy="55" rx="3.8" ry="2.1" /></g>
+        </g>
+        <path className="sp-coat" d="M20 27 Q15 46 21 48 L37 48 Q43 46 38 27 Q34 23 29 23 Q24 23 20 27 Z" />
+        <line className="sp-placket" x1="29" y1="25" x2="29" y2="48" />
+        <circle className="sp-btn" cx="29" cy="33" r="1.3" /><circle className="sp-btn" cx="29" cy="39" r="1.3" />
+        <g className="sp-arm"><rect className="sp-limb" x="35" y="27" width="3" height="12" rx="1.5" /></g>
+        <g className="sp-tool"><line className="sp-scissor" x1="41" y1="41" x2="46" y2="37" /><line className="sp-scissor" x1="41" y1="41" x2="46" y2="45" /><circle className="sp-scissor-d" cx="40.5" cy="39" r="1.3" /><circle className="sp-scissor-d" cx="40.5" cy="43" r="1.3" /></g>
+        <path className="sp-scarf" d="M23 25 Q17 31 11 33 Q15 34.5 21 31 Q23 29 23 25 Z" />
+        <circle className="sp-head" cx="28.5" cy="16" r="7.2" />
+        <circle className="sp-eye" cx="26" cy="16" r="1" /><circle className="sp-eye" cx="31.5" cy="16" r="1" />
+        <path className="sp-smile" d="M27 19 Q29 20.5 31 19" />
+        <circle className="sp-cheek" cx="33" cy="18" r="1.4" />
+        <ellipse className="sp-beret" cx="28.5" cy="9" rx="8.6" ry="3.7" />
+        <circle className="sp-beret" cx="35.5" cy="7.4" r="1.6" />
+      </svg>
     </div>
   );
 }

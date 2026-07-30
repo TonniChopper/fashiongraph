@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { mdToHtml } from "./format.js";
 
-export default function ChatRail({ messages, sending, onSend }) {
+export default function ChatRail({ messages, sending, liveSteps = [], onSend }) {
   const [text, setText] = useState("");
   const threadRef = useRef(null);
   const taRef = useRef(null);
@@ -54,6 +54,11 @@ export default function ChatRail({ messages, sending, onSend }) {
           <div className="msg ai">
             <div className="who">Atelier</div>
             <div className="thinking">thinking<i /><i /><i /></div>
+            {liveSteps.length > 0 && (
+              <div className="steps">
+                {liveSteps.map((s, j) => <div className="step" key={j}>· <b>{toolName(s)}</b> {tail(s)}</div>)}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -74,5 +79,5 @@ export default function ChatRail({ messages, sending, onSend }) {
   );
 }
 
-function toolName(s = "") { const m = s.match(/^(\w+)\[/); return m ? m[1] : "step"; }
-function tail(s = "") { const m = s.match(/\[(.+?)\]/); return m ? m[1].slice(0, 40) : ""; }
+function toolName(s = "") { const m = s.match(/(\w+)\s*\[/); return m ? m[1] : "thinking"; }
+function tail(s = "") { const m = s.match(/\[(.+?)\]/); return m ? m[1].slice(0, 44) : ""; }

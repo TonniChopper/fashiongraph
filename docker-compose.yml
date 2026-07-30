@@ -1,0 +1,16 @@
+# FashionGraph app (API + built UI on one port). Ollama runs on the host so it
+# can use your GPU/Metal — the container reaches it via host.docker.internal.
+#
+#   ollama serve && ollama pull qwen2.5:7b-instruct qwen2.5vl:7b
+#   docker compose up --build   →  http://localhost:8000
+services:
+  fashiongraph:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      FG_OLLAMA_HOST: "http://host.docker.internal:11434"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux: map to the host
+    volumes:
+      - ./data:/app/data                        # persist KG, RAG, boards

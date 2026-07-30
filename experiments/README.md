@@ -161,21 +161,29 @@ contexts of a pair → **0.500 by construction**; a context-conditional scorer
 can do better. No image editing → none of the generative artifacts that sink
 diffusion-based tests.
 
-`build_context_benchmark.py` parses the runway captions and, using a
-**transparent stylist rules table** (garment cue → season / formality, the KG's
-knowledge written out and auditable — *not* the model under test), emits minimal
-pairs `(image, context_good, context_bad)`. Already generated:
-**105 pairs** (43 season: wool-coat/puffer → cold not beach; 62 formality:
-suit/gown → formal event not gym). `eval_context.py` scores image-context
-compatibility with frozen FashionSigLIP and reports accuracy vs the 0.500 scalar
+`build_context_benchmark.py` emits minimal pairs `(image, context_good,
+context_bad)` from two sources, with ground truth that never comes from the
+model under test:
+
+* **runway captions** — full looks; garment cue → season/formality via a
+  transparent stylist rules table (105 pairs).
+* **fashion-product-images (44k)** — single garments with *explicit* structured
+  labels: `usage` (Formal/Sports/Ethnic) → formality & occasion, and
+  weather-signalling `articleType` (coats/sweaters vs shorts/sandals) → season.
+  Real metadata, not keyword guessing (11,794 pairs). Product images are
+  referenced as `fpi:{id}` and decoded from the parquet at eval time
+  (`fpi_loader.py`) — no thousands of files extracted.
+
+**Generated: 11,899 pairs** (formality 5,493, season 3,423, occasion/ethnic
+2,983). `eval_context.py` scores image-context compatibility with frozen
+FashionSigLIP and reports accuracy per axis and source vs the 0.500 scalar
 control — any lift is context sensitivity a scalar taste model is mathematically
 incapable of.
 
 ```bash
-# benchmark.jsonl already committed; regenerate with:
+# regenerate the benchmark (fast, no model — pure metadata):
 python experiments/build_context_benchmark.py \
-    --captions data/processed/runway_captions.jsonl \
-    --out      experiments/out/context_benchmark.jsonl
+    --out experiments/out/context_benchmark.jsonl
 # score it (needs the model -> M4):
 python experiments/eval_context.py \
     --benchmark experiments/out/context_benchmark.jsonl \

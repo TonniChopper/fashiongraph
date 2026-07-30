@@ -39,7 +39,21 @@ def main():
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
 
     recs = [json.loads(l) for l in open(args.benchmark)]
-    recs = [r for r in recs if os.path.exists(r["image"])]
+
+    # resolve fpi:{id} product refs from parquet; keep on-disk paths as-is
+    fpi_ids = [r["image"][4:] for r in recs if r["image"].startswith("fpi:")]
+    fpi_imgs = {}
+    if fpi_ids:
+        from fpi_loader import load_fpi_images
+        print(f"decoding {len(set(fpi_ids))} product images from parquet…")
+        fpi_imgs = load_fpi_images(set(fpi_ids))
+
+    def resolve(ref):
+        if ref.startswith("fpi:"):
+            return fpi_imgs.get(ref[4:])
+        return Image.open(ref) if os.path.exists(ref) else None
+
+    recs = [r for r in recs if resolve(r["image"]) is not None]
     print(f"{len(recs)} scorable pairs")
 
     from fg.vision.embedder import FashionEmbedder
@@ -51,14 +65,17 @@ def main():
     tvec = {c: emb.encode_texts([f"an outfit for {c}"])[0] for c in contexts}
 
     per_axis = defaultdict(lambda: [0, 0])   # axis -> [correct, total]
+    per_src = defaultdict(lambda: [0, 0])
     margins = []
-    for r in recs:
-        iv = emb.encode_images([Image.open(r["image"])])[0]
+    # batch image encoding for speed
+    imgs = [resolve(r["image"]) for r in recs]
+    ivs = emb.encode_images(imgs, batch_size=64)
+    for r, iv in zip(recs, ivs):
         sg = float(iv @ tvec[r["context_good"]])
         sb = float(iv @ tvec[r["context_bad"]])
         ok = sg > sb
-        per_axis[r["axis"]][0] += int(ok)
-        per_axis[r["axis"]][1] += 1
+        per_axis[r["axis"]][0] += int(ok); per_axis[r["axis"]][1] += 1
+        per_src[r.get("source", "?")][0] += int(ok); per_src[r.get("source", "?")][1] += 1
         margins.append(sg - sb)
 
     tot_ok = sum(v[0] for v in per_axis.values())
@@ -68,8 +85,10 @@ def main():
     print("CONTEXT-CONDITIONAL EVAL")
     print(f"  scalar-model control (any per-image score): 0.500  [by construction]")
     for ax, (ok, n) in sorted(per_axis.items()):
-        print(f"  FashionSigLIP  {ax:10s}: {ok/n:.3f}  ({ok}/{n})")
-    print(f"  FashionSigLIP  {'overall':10s}: {tot_ok/tot:.3f}  ({tot_ok}/{tot})")
+        print(f"  FashionSigLIP  by axis {ax:10s}: {ok/n:.3f}  ({ok}/{n})")
+    for sc, (ok, n) in sorted(per_src.items()):
+        print(f"  FashionSigLIP  by source {sc:8s}: {ok/n:.3f}  ({ok}/{n})")
+    print(f"  FashionSigLIP  {'OVERALL':17s}: {tot_ok/tot:.3f}  ({tot_ok}/{tot})")
     print(f"  mean margin s(good)-s(bad): {np.mean(margins):+.4f}")
     print("=" * 60)
     print("Any value above 0.500 is context sensitivity a beauty scalar cannot")
@@ -79,6 +98,7 @@ def main():
         "scalar_control": 0.5,
         "overall_accuracy": tot_ok / tot,
         "per_axis": {a: {"acc": v[0]/v[1], "n": v[1]} for a, v in per_axis.items()},
+        "per_source": {s: {"acc": v[0]/v[1], "n": v[1]} for s, v in per_src.items()},
         "mean_margin": float(np.mean(margins)),
         "n_pairs": tot,
     }, open(args.out + "_results.json", "w"), indent=2)

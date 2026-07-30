@@ -2,29 +2,27 @@
 Experiment 3 (rung 1) — context-conditional minimal-pair benchmark
 ==================================================================
 
-The council's flagship idea, in its cheapest artifact-free form.
+Taste is not a beauty scalar -- it is "right FOR this context." Hold the IMAGE
+perfectly fixed and change only the CONTEXT. A context-conditional scorer must
+change its verdict; a per-image beauty/confound scalar CANNOT (same image ->
+same score), so it scores exactly 0.5 by construction. No image editing, so no
+generative artifacts.
 
-Taste is not a beauty scalar -- it is "right FOR this context." The sharpest
-way to show that: hold the IMAGE perfectly fixed and change only the CONTEXT.
-A context-conditional scorer must change its verdict; a per-image beauty/
-confound scalar CANNOT (same image -> same score), so it scores exactly 0.5
-by construction. No image editing, so no generative artifacts.
+A record is a minimal pair (image, context_good, context_bad). Ground truth
+never comes from the model under test:
 
-A benchmark record is a minimal pair:
-    (image, context_good, context_bad)
-
-Two data sources, both with ground truth that does NOT come from the model we
-test:
-
-  1. RUNWAY captions (data/processed/runway_captions.jsonl) -- full looks;
-     garment cue -> season/formality via a transparent rules table.
+  1. RUNWAY captions -- full looks; garment cue -> season/formality rules.
   2. FASHION-PRODUCT-IMAGES (44k, parquet) -- single garments with EXPLICIT
-     structured labels `usage` (Formal/Sports/Ethnic) and `articleType`
-     (weather-signalling). This is real metadata, not keyword guessing, and
-     gives thousands of clean pairs.
+     labels `usage` (Formal/Sports/Ethnic) and weather-signalling `articleType`.
+
+Contexts are SAMPLED from rich pools of realistic occasions (deterministically
+per image id, so it is reproducible but varied) and phrased with several
+templates -- no endlessly repeated "beach / wedding" strings. The good context
+is drawn from a pool the garment genuinely suits; the bad context from a pool it
+clearly does not.
 
 Product images are referenced as ``fpi:{id}`` and decoded from the parquet at
-eval time (see fpi_loader.py) -- no thousands of files extracted to disk.
+eval time (see fpi_loader.py) -- no thousands of files extracted.
 
     python experiments/build_context_benchmark.py \
         --out experiments/out/context_benchmark.jsonl
@@ -33,16 +31,71 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 
-# ---------- axis contexts ------------------------------------------------- #
-SEASON = dict(good="a cold winter day", bad="a hot summer beach day")
-FORMAL = dict(good="a formal evening event", bad="a gym workout")
-ETHNIC = dict(good="a traditional festival or wedding", bad="a gym workout")
+# ---------- rich occasion pools ------------------------------------------- #
+POOLS = {
+    "warm": [                                   # hot-weather occasions
+        "a hot day at the beach", "a tropical summer holiday",
+        "a poolside afternoon", "an outdoor summer festival",
+        "a sweltering city afternoon", "a summer garden party",
+        "a seaside vacation", "a warm spring picnic",
+    ],
+    "cold": [                                   # cold-weather occasions
+        "a snowy winter morning", "a freezing winter commute",
+        "a ski trip in the mountains", "a cold December evening",
+        "a frosty walk outdoors", "a chilly autumn hike",
+        "a bitter cold night out", "a winter holiday in the north",
+    ],
+    "formal": [                                 # dressed-up occasions
+        "a black-tie gala", "a formal wedding ceremony",
+        "a corporate boardroom meeting", "a job interview",
+        "an awards dinner", "an evening at the opera",
+        "a diplomatic reception", "a business conference",
+    ],
+    "athletic": [                               # sporty / very casual
+        "an intense gym workout", "a morning run in the park",
+        "a yoga class", "a game of tennis", "a weekend trail hike",
+        "a basketball match", "a cycling session", "a beach volleyball game",
+    ],
+    "traditional": [                            # cultural / ceremonial
+        "a traditional wedding celebration", "a cultural festival",
+        "a religious ceremony", "a Diwali celebration",
+        "a family festival gathering", "a temple visit",
+    ],
+}
+
+TEMPLATES = [
+    "an outfit for {}",
+    "what you would wear to {}",
+    "dressed for {}",
+    "an outfit suited to {}",
+    "clothing appropriate for {}",
+]
 
 
-# ---------- source 1: runway captions (rules over caption text) ----------- #
+def _h(*parts):
+    return int(hashlib.md5("|".join(map(str, parts)).encode()).hexdigest(), 16)
+
+
+def ctx(pool, key, role):
+    """Deterministically sample an occasion + template -> a full prompt."""
+    occ = POOLS[pool][_h(key, pool, role) % len(POOLS[pool])]
+    tmpl = TEMPLATES[_h(key, role, "t") % len(TEMPLATES)]
+    return tmpl.format(occ)
+
+
+def pair(records, axis, source, ref, key, good_pool, bad_pool, cue):
+    records.append(dict(
+        axis=axis, source=source, image=ref, cue=cue,
+        context_good=ctx(good_pool, key, "good"),
+        context_bad=ctx(bad_pool, key, "bad"),
+    ))
+
+
+# ---------- source 1: runway captions ------------------------------------- #
 COLD_CUES = ["wool coat", "peacoat", "puffer", "parka", "trench", "overcoat",
              "heavy knit", "turtleneck", "shearling", "wool", "cashmere", "coat"]
 WARM_CUES = ["swimwear", "bikini", "linen", "tank top", "shorts", "sundress",
@@ -64,29 +117,25 @@ def from_runway(path, out):
     if not os.path.exists(path):
         return 0
     n = 0
-    for line in open(path):
+    for i, line in enumerate(open(path)):
         c = json.loads(line)
         t = c["caption"].lower()
         img = c.get("image_path", "")
+        key = img or f"rw{i}"
         cold, warm = _cue(t, COLD_CUES), _cue(t, WARM_CUES)
         formal, casual = _cue(t, FORMAL_CUES), _cue(t, CASUAL_CUES)
         if cold and not warm:
-            out.append(dict(axis="season", source="runway", image=img,
-                            cue=cold, **SEASON)); n += 1
+            pair(out, "season", "runway", img, key, "cold", "warm", cold); n += 1
         elif warm and not cold:
-            out.append(dict(axis="season", source="runway", image=img, cue=warm,
-                            good=SEASON["bad"], bad=SEASON["good"])); n += 1
+            pair(out, "season", "runway", img, key, "warm", "cold", warm); n += 1
         if formal and not casual:
-            out.append(dict(axis="formality", source="runway", image=img,
-                            cue=formal, **FORMAL)); n += 1
+            pair(out, "formality", "runway", img, key, "formal", "athletic", formal); n += 1
         elif casual and not formal:
-            out.append(dict(axis="formality", source="runway", image=img,
-                            cue=casual, good=FORMAL["bad"], bad=FORMAL["good"]))
-            n += 1
+            pair(out, "formality", "runway", img, key, "athletic", "formal", casual); n += 1
     return n
 
 
-# ---------- source 2: fashion-product-images (structured labels) ---------- #
+# ---------- source 2: fashion-product-images ------------------------------ #
 COLD_ARTICLES = {"Sweaters", "Sweatshirts", "Jackets", "Coats",
                  "Nehru Jackets", "Rain Jacket"}
 WARM_ARTICLES = {"Shorts", "Sandals", "Flip Flops", "Swimwear", "Capris",
@@ -101,34 +150,28 @@ def from_products(pattern, out):
     n = 0
     cols = ["id", "usage", "articleType", "masterCategory", "productDisplayName"]
     for f in files:
-        t = pq.read_table(f, columns=cols).to_pylist()
-        for r in t:
+        for r in pq.read_table(f, columns=cols).to_pylist():
             if r["masterCategory"] not in ("Apparel", "Footwear"):
                 continue
-            ref = f"fpi:{r['id']}"
-            name = r.get("productDisplayName") or ""
+            ref, key = f"fpi:{r['id']}", r["id"]
             atype, usage = r["articleType"], r["usage"]
 
-            # formality (explicit label)
             if usage == "Formal":
-                out.append(dict(axis="formality", source="fpi", image=ref,
-                                cue=f"usage=Formal/{atype}", **FORMAL)); n += 1
+                pair(out, "formality", "fpi", ref, key, "formal", "athletic",
+                     f"usage=Formal/{atype}"); n += 1
             elif usage == "Sports":
-                out.append(dict(axis="formality", source="fpi", image=ref,
-                                cue=f"usage=Sports/{atype}",
-                                good=FORMAL["bad"], bad=FORMAL["good"])); n += 1
+                pair(out, "formality", "fpi", ref, key, "athletic", "formal",
+                     f"usage=Sports/{atype}"); n += 1
             elif usage == "Ethnic":
-                out.append(dict(axis="occasion", source="fpi", image=ref,
-                                cue=f"usage=Ethnic/{atype}", **ETHNIC)); n += 1
+                pair(out, "occasion", "fpi", ref, key, "traditional", "athletic",
+                     f"usage=Ethnic/{atype}"); n += 1
 
-            # season (weather-signalling article type)
             if atype in COLD_ARTICLES:
-                out.append(dict(axis="season", source="fpi", image=ref,
-                                cue=f"article={atype}", **SEASON)); n += 1
+                pair(out, "season", "fpi", ref, key, "cold", "warm",
+                     f"article={atype}"); n += 1
             elif atype in WARM_ARTICLES:
-                out.append(dict(axis="season", source="fpi", image=ref,
-                                cue=f"article={atype}",
-                                good=SEASON["bad"], bad=SEASON["good"])); n += 1
+                pair(out, "season", "fpi", ref, key, "warm", "cold",
+                     f"article={atype}"); n += 1
     return n
 
 
@@ -145,26 +188,22 @@ def main():
     n_rw = from_runway(args.captions, records)
     n_fpi = from_products(args.products, records)
 
-    # normalise to context_good/context_bad key names for eval
-    for r in records:
-        r["context_good"] = r.pop("good")
-        r["context_bad"] = r.pop("bad")
-
     with open(args.out, "w") as fh:
         for r in records:
             fh.write(json.dumps(r) + "\n")
 
     from collections import Counter
     by_axis = Counter(r["axis"] for r in records)
-    by_src = Counter(r["source"] for r in records)
-    print(f"runway pairs: {n_rw}   product pairs: {n_fpi}")
-    print(f"TOTAL minimal pairs: {len(records)}")
-    print(f"  by axis:   {dict(by_axis)}")
-    print(f"  by source: {dict(by_src)}")
+    uniq_ctx = len({r["context_good"] for r in records}
+                   | {r["context_bad"] for r in records})
+    print(f"runway {n_rw}  product {n_fpi}  TOTAL {len(records)} pairs")
+    print(f"  by axis: {dict(by_axis)}")
+    print(f"  distinct context phrases: {uniq_ctx}")
     print(f"wrote {args.out}")
-    print("\nA per-image beauty/confound scalar scores BOTH contexts identically")
-    print("-> 0.500 by construction. Any accuracy above 0.5 is context sensitivity")
-    print("a scalar model cannot have. Score with eval_context.py (on the M4).")
+    print("\nsamples:")
+    for r in records[105:110] + records[-3:]:
+        print(f"  [{r['axis']:9s}] good='{r['context_good']}'  |  "
+              f"bad='{r['context_bad']}'")
 
 
 if __name__ == "__main__":

@@ -62,7 +62,8 @@ def main():
     # cache text embeddings for the small set of contexts
     contexts = sorted({r["context_good"] for r in recs}
                       | {r["context_bad"] for r in recs})
-    tvec = {c: emb.encode_texts([f"an outfit for {c}"])[0] for c in contexts}
+    # context strings are already full natural prompts from the builder
+    tvec = {c: emb.encode_texts([c])[0] for c in contexts}
 
     per_axis = defaultdict(lambda: [0, 0])   # axis -> [correct, total]
     per_src = defaultdict(lambda: [0, 0])

@@ -175,7 +175,11 @@ model under test:
   (`fpi_loader.py`) — no thousands of files extracted.
 
 **Generated: 11,899 pairs** (formality 5,493, season 3,423, occasion/ethnic
-2,983). `eval_context.py` scores image-context compatibility with frozen
+2,983). Each pair's good/bad contexts are *sampled* from rich occasion pools
+(warm/cold/formal/athletic/traditional) with varied phrasing templates —
+**190 distinct context phrases**, chosen deterministically per image id, so
+nothing is an endlessly repeated canned string. `eval_context.py` scores
+image-context compatibility with frozen
 FashionSigLIP and reports accuracy per axis and source vs the 0.500 scalar
 control — any lift is context sensitivity a scalar taste model is mathematically
 incapable of.

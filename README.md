@@ -149,6 +149,19 @@ Measured on honest, leakage-controlled splits (held-out whole collections, not r
 
 ---
 
+## Research branch — *The Frozen Eye* (machine-taste study)
+
+A dedicated research line lives on the **`experiments/taste-confound-baseline`** branch: a confound-controlled study of machine **taste**, asking whether a frozen fashion encoder has taste *or just good lighting*. Six experiments on the Surrey pairwise dataset (1,064 looks, ~70k judgments from 10 annotators) with a **frozen** FashionSigLIP encoder show that:
+
+- low-level photo **confounds barely beat chance** (0.573 vs. 0.537; human agreement 0.732) — preference is semantic, not production value;
+- a linear head on the frozen encoder reaches **0.684** but the signal is **low-rank and largely tacit** (an explicit VLM aesthetic rubric does *worse* than the confound floor);
+- taste is **context-conditional** — on minimal pairs that change only the occasion, a per-image scalar is **0.500 by construction** while the encoder reaches **0.88**;
+- taste is **structured disagreement** — personalisation beats consensus (**0.763 vs. 0.675**), a few latent **personas** recover much of the gain, and polarising looks are predictable.
+
+The branch also holds a released **context-conditional minimal-pair benchmark** and a draft write-up (*The Frozen Eye*) with figures and tables. It is kept separate from `main` so the app and the study evolve independently; several results are honest negatives.
+
+---
+
 ## The interface — *Atelier*, an infinite creative canvas
 
 FashionGraph is not a chat box. The front end (React + Vite) is a bespoke **infinite canvas** the model works *on*, with an ink-black conversational rail alongside — an editorial-couture aesthetic (Bodoni Moda display, a bone-paper grain, a single scarlet accent).
